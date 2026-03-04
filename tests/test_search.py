@@ -143,7 +143,7 @@ def test_chunks_method_reconstruct_text(tmp_path):
 
 
 def test_chunks_method_prose_only(tmp_path):
-    """Filtering to 'paragraph' gives prose without headings or separators."""
+    """Filtering to 'paragraph' gives prose without headings."""
     db = _make_db(tmp_path)
     prose = db.chunks(1, kinds=["paragraph"])
     kinds = {k for _, _, _, k in prose}
@@ -311,6 +311,5 @@ def test_dickens_filter_prose_only(tmp_path):
     contents = "\n\n".join(c for _, _, c, _ in prose)
     # Dialogue is inside paragraph chunks (accumulated)
     assert "Oliver Twist" in contents
-    # Structural elements excluded
+    # Headings excluded from prose
     assert "CHAPTER" not in contents
-    assert "* * *" not in contents

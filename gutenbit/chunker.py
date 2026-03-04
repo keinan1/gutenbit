@@ -1,16 +1,12 @@
-"""Split book text into labelled chunks with chapter detection.
-
-Every text block separated by blank lines is preserved and labelled with a
-*kind* so that downstream consumers can reconstruct the full original text
-or filter to just the content they need.
+"""Split book text into labelled chunks with structural awareness.
 
 Chunk kinds
 -----------
-- ``"paragraph"`` — one or more consecutive prose blocks accumulated to a
-  minimum length (≥ 50 chars).  Short blocks like dialogue lines are merged
-  with their neighbours rather than standing alone.
-- ``"heading"``   — chapter / section headings
-- ``"separator"`` — decorative rules and dinkuses (``* * *``, ``---``, …)
+- ``"front_matter"`` — title page, author, publisher info before the TOC/body
+- ``"toc"``          — table of contents entries
+- ``"heading"``      — chapter / section headings
+- ``"paragraph"``    — prose text (short blocks accumulated to ≥ 50 chars)
+- ``"end_matter"``   — footnotes, appendices, etc. after the last chapter
 """
 
 from __future__ import annotations
@@ -26,14 +22,14 @@ _HEADING_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Matches decorative separators / dinkuses.
-# Covers patterns like: * * *, ***, ---, ===, ~~~, _ _ _, -----, etc.
-_SEPARATOR_RE = re.compile(
-    r"^[\s*\-=_~.#·•]+$",
+_TOC_RE = re.compile(r"^(?:CONTENTS|TABLE OF CONTENTS)\s*$", re.IGNORECASE)
+
+_END_MATTER_RE = re.compile(
+    r"^(?:FOOTNOTES?|APPENDIX|GLOSSARY|INDEX|END OF)\b",
+    re.IGNORECASE,
 )
 
-# Minimum character length for a paragraph chunk.  Consecutive text blocks
-# are accumulated until this threshold is met (or a structural break occurs).
+# Minimum character length for a paragraph chunk.
 _MIN_CHUNK_LEN = 50
 
 
@@ -44,43 +40,59 @@ class Chunk:
     position: int
     chapter: str
     content: str
-    kind: str  # "paragraph", "heading", or "separator"
+    kind: str
 
 
 def chunk_text(text: str) -> list[Chunk]:
     """Split *text* into labelled chunks, tracking chapter headings.
 
-    Text blocks (separated by blank lines) are accumulated into paragraph
-    chunks until they reach ``_MIN_CHUNK_LEN`` characters.  Headings and
-    separators are emitted as their own chunks and act as flush points —
-    any buffered text is emitted first, even if below minimum length.
-
-    This means **no text is discarded**.  Short dialogue lines, brief
-    narration, and other small blocks are grouped with their neighbours
-    into paragraph chunks.  Trailing text before a section break (or at
-    end-of-document) is emitted as its own chunk even if below minimum.
-
     Returns chunks in document order so that
     ``"\\n\\n".join(c.content for c in chunks)`` reproduces the text.
     """
-    blocks = re.split(r"\n\s*\n", text)
+    blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+    if not blocks:
+        return []
+
+    body_start = _find_body_start(blocks)
     chunks: list[Chunk] = []
-    chapter = ""
     position = 0
+
+    # --- Pre-body: front matter and TOC ---
+    toc_start = None
+    for i in range(body_start):
+        if _is_toc_header(blocks[i]):
+            toc_start = i
+            break
+
+    for i in range(body_start):
+        kind = "toc" if toc_start is not None and i >= toc_start else "front_matter"
+        chunks.append(Chunk(position=position, chapter="", content=blocks[i], kind=kind))
+        position += 1
+
+    # --- Body: headings, paragraphs, end matter ---
+    chapter = ""
     buffer: list[str] = []
+    in_end_matter = False
 
     def _flush() -> None:
         nonlocal position
         if not buffer:
             return
         content = "\n\n".join(buffer)
-        chunks.append(Chunk(position=position, chapter=chapter, content=content, kind="paragraph"))
+        kind = "end_matter" if in_end_matter else "paragraph"
+        chunks.append(Chunk(position=position, chapter=chapter, content=content, kind=kind))
         position += 1
         buffer.clear()
 
-    for block in blocks:
-        block = block.strip()
-        if not block:
+    for i in range(body_start, len(blocks)):
+        block = blocks[i]
+
+        if not in_end_matter and _is_end_matter(block):
+            _flush()
+            in_end_matter = True
+
+        if in_end_matter:
+            buffer.append(block)
             continue
 
         if _is_heading(block):
@@ -88,19 +100,29 @@ def chunk_text(text: str) -> list[Chunk]:
             chapter = _normalise_heading(block)
             chunks.append(Chunk(position=position, chapter=chapter, content=block, kind="heading"))
             position += 1
-        elif _is_separator(block):
-            _flush()
-            chunks.append(
-                Chunk(position=position, chapter=chapter, content=block, kind="separator")
-            )
-            position += 1
         else:
             buffer.append(block)
             if sum(len(b) for b in buffer) >= _MIN_CHUNK_LEN:
                 _flush()
 
-    _flush()  # emit any remaining buffered text
+    _flush()
     return chunks
+
+
+def _find_body_start(blocks: list[str]) -> int:
+    """Find the index of the first body block (after front matter / TOC).
+
+    Looks for a heading followed within 5 blocks by a substantial prose
+    block (≥100 chars).  TOC chapter references are naturally skipped
+    because they are followed by more short entries, not prose.
+    """
+    for i, block in enumerate(blocks):
+        if not _is_heading(block):
+            continue
+        for j in range(i + 1, min(i + 6, len(blocks))):
+            if not _is_heading(blocks[j]) and len(blocks[j]) >= 100:
+                return i
+    return 0
 
 
 def _is_heading(block: str) -> bool:
@@ -108,16 +130,17 @@ def _is_heading(block: str) -> bool:
     lines = block.splitlines()
     if len(lines) > 3:
         return False
-    first = lines[0].strip()
-    return bool(_HEADING_RE.match(first))
+    return bool(_HEADING_RE.match(lines[0].strip()))
 
 
-def _is_separator(block: str) -> bool:
-    """Return True if *block* is a decorative rule or dinkus."""
-    # Must be a single line and match the separator pattern.
-    if "\n" in block:
-        return False
-    return bool(_SEPARATOR_RE.fullmatch(block))
+def _is_toc_header(block: str) -> bool:
+    """Return True if *block* is a 'CONTENTS' / 'TABLE OF CONTENTS' header."""
+    return bool(_TOC_RE.match(block.splitlines()[0].strip()))
+
+
+def _is_end_matter(block: str) -> bool:
+    """Return True if *block* starts a footnotes/appendix section."""
+    return bool(_END_MATTER_RE.match(block.splitlines()[0].strip()))
 
 
 def _normalise_heading(block: str) -> str:
