@@ -23,7 +23,19 @@ with Database("gutenberg.db") as db:
 
     # Retrieve cleaned text
     text = db.text(book_id=1661)
+
+    # Full-text search with BM25 ranking
+    results = db.search("to be or not to be")
+
+    # Filter by metadata
+    results = db.search("whale", author="melville", language="en")
+
+    for r in results:
+        print(f"[{r.title}] {r.chapter} (score={r.score:.1f})")
+        print(r.content[:200])
 ```
+
+Texts are automatically chunked into paragraphs during ingest, with chapter headings detected and tracked. Each search result includes the matching paragraph, its chapter, position, book metadata, and a BM25 relevance score.
 
 ## Development
 
