@@ -6,9 +6,10 @@ or filter to just the content they need.
 
 Chunk kinds
 -----------
-- ``"paragraph"`` — substantive prose (≥ 50 chars)
+- ``"paragraph"`` — one or more consecutive prose blocks accumulated to a
+  minimum length (≥ 50 chars).  Short blocks like dialogue lines are merged
+  with their neighbours rather than standing alone.
 - ``"heading"``   — chapter / section headings
-- ``"short"``     — short text that is not a heading or separator (e.g. dialogue)
 - ``"separator"`` — decorative rules and dinkuses (``* * *``, ``---``, …)
 """
 
@@ -31,7 +32,8 @@ _SEPARATOR_RE = re.compile(
     r"^[\s*\-=_~.#·•]+$",
 )
 
-# Minimum character length for a block to be classified as a full paragraph.
+# Minimum character length for a paragraph chunk.  Consecutive text blocks
+# are accumulated until this threshold is met (or a structural break occurs).
 _MIN_CHUNK_LEN = 50
 
 
@@ -42,20 +44,21 @@ class Chunk:
     position: int
     chapter: str
     content: str
-    kind: str  # "paragraph", "heading", "short", or "separator"
+    kind: str  # "paragraph", "heading", or "separator"
 
 
 def chunk_text(text: str) -> list[Chunk]:
     """Split *text* into labelled chunks, tracking chapter headings.
 
-    Paragraphs are blocks separated by one or more blank lines.  Every block
-    is preserved and assigned a *kind*:
+    Text blocks (separated by blank lines) are accumulated into paragraph
+    chunks until they reach ``_MIN_CHUNK_LEN`` characters.  Headings and
+    separators are emitted as their own chunks and act as flush points —
+    any buffered text is emitted first, even if below minimum length.
 
-    - Blocks that match a heading pattern → ``"heading"`` (also updates the
-      running chapter label for subsequent chunks).
-    - Blocks that consist only of punctuation / decoration → ``"separator"``.
-    - Short blocks (< 50 chars) that aren't headings or separators → ``"short"``.
-    - Everything else → ``"paragraph"``.
+    This means **no text is discarded**.  Short dialogue lines, brief
+    narration, and other small blocks are grouped with their neighbours
+    into paragraph chunks.  Trailing text before a section break (or at
+    end-of-document) is emitted as its own chunk even if below minimum.
 
     Returns chunks in document order so that
     ``"\\n\\n".join(c.content for c in chunks)`` reproduces the text.
@@ -64,6 +67,16 @@ def chunk_text(text: str) -> list[Chunk]:
     chunks: list[Chunk] = []
     chapter = ""
     position = 0
+    buffer: list[str] = []
+
+    def _flush() -> None:
+        nonlocal position
+        if not buffer:
+            return
+        content = "\n\n".join(buffer)
+        chunks.append(Chunk(position=position, chapter=chapter, content=content, kind="paragraph"))
+        position += 1
+        buffer.clear()
 
     for block in blocks:
         block = block.strip()
@@ -71,18 +84,22 @@ def chunk_text(text: str) -> list[Chunk]:
             continue
 
         if _is_heading(block):
+            _flush()
             chapter = _normalise_heading(block)
-            kind = "heading"
+            chunks.append(Chunk(position=position, chapter=chapter, content=block, kind="heading"))
+            position += 1
         elif _is_separator(block):
-            kind = "separator"
-        elif len(block) < _MIN_CHUNK_LEN:
-            kind = "short"
+            _flush()
+            chunks.append(
+                Chunk(position=position, chapter=chapter, content=block, kind="separator")
+            )
+            position += 1
         else:
-            kind = "paragraph"
+            buffer.append(block)
+            if sum(len(b) for b in buffer) >= _MIN_CHUNK_LEN:
+                _flush()
 
-        chunks.append(Chunk(position=position, chapter=chapter, content=block, kind=kind))
-        position += 1
-
+    _flush()  # emit any remaining buffered text
     return chunks
 
 

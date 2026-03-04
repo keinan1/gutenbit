@@ -26,15 +26,20 @@ uv sync
 
 ### Chunker design
 
-Every text block separated by blank lines is preserved as a `Chunk` with a `kind` label:
+Consecutive text blocks (separated by blank lines) are accumulated into paragraph
+chunks until they reach a minimum length (50 chars). Headings and separators act
+as flush points. Nothing is discarded — short dialogue, brief narration, etc. are
+grouped with neighbouring blocks rather than standing alone.
 
-- `"paragraph"` — substantive prose (≥ 50 chars)
+Chunk kinds:
+
+- `"paragraph"` — one or more consecutive prose blocks (accumulated to ≥ 50 chars)
 - `"heading"` — chapter/section headings (also updates the running chapter label)
-- `"short"` — short text that isn't a heading or separator (dialogue, brief paragraphs)
 - `"separator"` — decorative rules, dinkuses (`* * *`, `---`, etc.)
 
-Nothing is discarded. Users can reconstruct the full original text from all chunks
-in position order, or filter to just `paragraph` + `short` for clean prose, etc.
+Trailing text before a section break or end-of-document is emitted as its own chunk
+even if below minimum. Users can reconstruct the full original text from all chunks
+in position order, or filter to just `"paragraph"` for prose.
 
 ## Test corpus
 

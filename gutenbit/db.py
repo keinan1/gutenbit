@@ -179,10 +179,10 @@ class Database:
             # Full raw reconstruction
             "\\n\\n".join(content for _, _, content, _ in db.chunks(book_id))
 
-            # Prose only (paragraphs + short dialogue)
+            # Prose only (no headings or separators)
             "\\n\\n".join(
                 content for _, _, content, kind in db.chunks(book_id)
-                if kind in ("paragraph", "short")
+                if kind == "paragraph"
             )
         """
         if kinds:
@@ -218,8 +218,7 @@ class Database:
         *query* is an FTS5 match expression (e.g. ``"moby dick"`` or
         ``whale OR sea``).  Optional keyword filters narrow results by book
         metadata using case-insensitive substring matching.  *kind* filters
-        by chunk kind (``"paragraph"``, ``"heading"``, ``"short"``,
-        ``"separator"``).
+        by chunk kind (``"paragraph"``, ``"heading"``, ``"separator"``).
         """
         sql = _SEARCH_SQL
         params: list[object] = [query]

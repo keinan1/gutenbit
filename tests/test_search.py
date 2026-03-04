@@ -76,7 +76,8 @@ def _make_db(tmp_path):
 def test_chunks_stored(tmp_path):
     db = _make_db(tmp_path)
     rows = db._conn.execute("SELECT COUNT(*) as n FROM chunks").fetchone()
-    # 5 from _TEXT (heading, para, para, heading, para) + 2 from _TEXT2 (heading, para)
+    # _TEXT: heading, para, para, heading, para = 5
+    # _TEXT2: heading, para = 2
     assert rows["n"] == 7
 
 
@@ -108,6 +109,13 @@ def test_heading_chunks_stored(tmp_path):
     assert [r["content"] for r in rows] == ["CHAPTER 1", "CHAPTER 2"]
 
 
+def test_no_short_kind_exists(tmp_path):
+    """The 'short' kind should never appear — short text is accumulated."""
+    db = _make_db(tmp_path)
+    rows = db._conn.execute("SELECT COUNT(*) as n FROM chunks WHERE kind = 'short'").fetchone()
+    assert rows["n"] == 0
+
+
 # ------------------------------------------------------------------
 # Database.chunks() method
 # ------------------------------------------------------------------
@@ -132,6 +140,17 @@ def test_chunks_method_reconstruct_text(tmp_path):
     reconstructed = "\n\n".join(content for _, _, content, _ in chunks)
     assert "Call me Ishmael" in reconstructed
     assert "CHAPTER 1" in reconstructed
+
+
+def test_chunks_method_prose_only(tmp_path):
+    """Filtering to 'paragraph' gives prose without headings or separators."""
+    db = _make_db(tmp_path)
+    prose = db.chunks(1, kinds=["paragraph"])
+    kinds = {k for _, _, _, k in prose}
+    assert kinds == {"paragraph"}
+    contents = "\n\n".join(c for _, _, c, _ in prose)
+    assert "Call me Ishmael" in contents
+    assert "CHAPTER" not in contents
 
 
 # ------------------------------------------------------------------
@@ -161,7 +180,6 @@ def test_search_result_fields(tmp_path):
 
 def test_search_filter_by_author(tmp_path):
     db = _make_db(tmp_path)
-    # "truth" appears in Austen, not Melville
     results = db.search("truth", author="Austen")
     assert len(results) >= 1
     assert all(r.authors == "Austen, Jane" for r in results)
@@ -182,7 +200,6 @@ def test_search_filter_by_book_id(tmp_path):
 
 def test_search_filter_excludes_non_matching(tmp_path):
     db = _make_db(tmp_path)
-    # Search for text in book 1 but filter to book 2 — should find nothing
     results = db.search("Ishmael", book_id=2)
     assert results == []
 
@@ -196,13 +213,11 @@ def test_search_limit(tmp_path):
 def test_search_bm25_ranking(tmp_path):
     db = _make_db(tmp_path)
     results = db.search("Ishmael")
-    # The paragraph mentioning Ishmael should rank highest
     assert "Ishmael" in results[0].content
 
 
 def test_fts_porter_stemming(tmp_path):
     db = _make_db(tmp_path)
-    # "sailing" should match "sail" via porter stemmer
     results = db.search("sailing")
     assert len(results) >= 1
     assert any("sail" in r.content for r in results)
@@ -216,7 +231,6 @@ def test_search_no_results(tmp_path):
 
 def test_search_filter_by_kind(tmp_path):
     db = _make_db(tmp_path)
-    # Search for "CHAPTER" but filter to heading kind only
     results = db.search("CHAPTER", kind="heading")
     assert len(results) >= 1
     assert all(r.kind == "heading" for r in results)
@@ -263,15 +277,16 @@ _DICKENS_TEXT = (
 )
 
 
-def test_dickens_short_dialogue_preserved(tmp_path):
+def test_dickens_dialogue_accumulated(tmp_path):
+    """Short dialogue lines are accumulated into paragraph chunks, not lost."""
     db = Database(tmp_path / "test.db")
     db._store(_DICKENS_BOOK, _DICKENS_TEXT)
 
     all_chunks = db.chunks(3)
-    contents = [content for _, _, content, _ in all_chunks]
-    assert any("Oliver Twist" in c for c in contents)
-    assert any("What's your name" in c for c in contents)
-    assert any("boy hesitated" in c for c in contents)
+    reconstructed = "\n\n".join(content for _, _, content, _ in all_chunks)
+    assert "Oliver Twist" in reconstructed
+    assert "What's your name" in reconstructed
+    assert "boy hesitated" in reconstructed
 
 
 def test_dickens_reconstruct_full_text(tmp_path):
@@ -280,7 +295,6 @@ def test_dickens_reconstruct_full_text(tmp_path):
 
     all_chunks = db.chunks(3)
     reconstructed = "\n\n".join(content for _, _, content, _ in all_chunks)
-    # Every meaningful block from the original should appear
     assert "workhouse" in reconstructed
     assert "Oliver Twist" in reconstructed
     assert "* * *" in reconstructed
@@ -291,10 +305,12 @@ def test_dickens_filter_prose_only(tmp_path):
     db = Database(tmp_path / "test.db")
     db._store(_DICKENS_BOOK, _DICKENS_TEXT)
 
-    prose = db.chunks(3, kinds=["paragraph", "short"])
-    kinds = [k for _, _, _, k in prose]
-    assert "heading" not in kinds
-    assert "separator" not in kinds
-    # But short dialogue is still present
-    contents = [c for _, _, c, _ in prose]
-    assert any("Oliver Twist" in c for c in contents)
+    prose = db.chunks(3, kinds=["paragraph"])
+    kinds = {k for _, _, _, k in prose}
+    assert kinds == {"paragraph"}
+    contents = "\n\n".join(c for _, _, c, _ in prose)
+    # Dialogue is inside paragraph chunks (accumulated)
+    assert "Oliver Twist" in contents
+    # Structural elements excluded
+    assert "CHAPTER" not in contents
+    assert "* * *" not in contents

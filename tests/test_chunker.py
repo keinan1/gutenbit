@@ -1,9 +1,9 @@
-"""Tests for paragraph chunking, kind labelling, and chapter detection."""
+"""Tests for paragraph accumulation, kind labelling, and chapter detection."""
 
 from gutenbit.chunker import chunk_text
 
 # ------------------------------------------------------------------
-# Basic splitting
+# Basic splitting and accumulation
 # ------------------------------------------------------------------
 
 
@@ -23,7 +23,7 @@ def test_splits_on_blank_lines():
 def test_positions_are_sequential():
     text = "\n\n".join(f"Paragraph {i} has enough content to clear the filter." for i in range(5))
     chunks = chunk_text(text)
-    assert [c.position for c in chunks] == [0, 1, 2, 3, 4]
+    assert [c.position for c in chunks] == list(range(len(chunks)))
 
 
 def test_multiple_blank_lines():
@@ -46,11 +46,25 @@ def test_whitespace_only():
 
 
 # ------------------------------------------------------------------
-# Kind labelling
+# Accumulation behaviour
 # ------------------------------------------------------------------
 
 
-def test_short_blocks_preserved_as_short():
+def test_accumulates_short_blocks():
+    """Multiple short blocks are merged into one paragraph chunk."""
+    text = "'Hello.'\n\n'Hi there.'\n\n'How are you today?'\n"
+    chunks = chunk_text(text)
+    assert len(chunks) == 1
+    assert chunks[0].kind == "paragraph"
+    assert "'Hello.'" in chunks[0].content
+    assert "'Hi there.'" in chunks[0].content
+    assert "'How are you today?'" in chunks[0].content
+    # Paragraphs joined with double newline
+    assert "\n\n" in chunks[0].content
+
+
+def test_accumulation_emits_at_threshold():
+    """Once accumulated text reaches minimum length, a chunk is emitted."""
     text = (
         "This is a real paragraph with enough content to be worth indexing.\n"
         "\n"
@@ -59,11 +73,63 @@ def test_short_blocks_preserved_as_short():
         "Another real paragraph with sufficient length to be indexed properly.\n"
     )
     chunks = chunk_text(text)
-    assert len(chunks) == 3
+    # First paragraph is long enough on its own → emitted
     assert chunks[0].kind == "paragraph"
-    assert chunks[1].kind == "short"
-    assert chunks[1].content == "'Yes,' he said."
-    assert chunks[2].kind == "paragraph"
+    assert chunks[0].content.startswith("This is a real")
+    # "'Yes,' he said." is short but gets accumulated with next paragraph
+    assert len(chunks) == 2
+    assert "'Yes,' he said." in chunks[1].content
+    assert "Another real paragraph" in chunks[1].content
+
+
+def test_trailing_below_min_emitted_at_section_break():
+    """Short text before a heading is emitted as its own chunk."""
+    text = (
+        "CHAPTER I\n"
+        "\n"
+        "A long paragraph with enough text to be emitted on its own merits.\n"
+        "\n"
+        "'My dear.'\n"
+        "\n"
+        "CHAPTER II\n"
+        "\n"
+        "Another long paragraph with enough text to be emitted on its own.\n"
+    )
+    chunks = chunk_text(text)
+    kinds = [c.kind for c in chunks]
+    assert kinds == ["heading", "paragraph", "paragraph", "heading", "paragraph"]
+    assert chunks[2].content == "'My dear.'"
+    assert chunks[2].chapter == "CHAPTER I"
+
+
+def test_trailing_below_min_emitted_at_end():
+    """Short text at end of document is emitted as its own chunk."""
+    text = "A long paragraph with enough text to be emitted on its own merits.\n\nOk.\n"
+    chunks = chunk_text(text)
+    assert len(chunks) == 2
+    assert chunks[1].content == "Ok."
+
+
+def test_trailing_below_min_emitted_at_separator():
+    """Short text before a separator is emitted as its own chunk."""
+    text = (
+        "A long paragraph with enough text to be emitted on its own merits.\n"
+        "\n"
+        "Brief.\n"
+        "\n"
+        "* * *\n"
+        "\n"
+        "More text that is long enough to be emitted as a paragraph chunk.\n"
+    )
+    chunks = chunk_text(text)
+    kinds = [c.kind for c in chunks]
+    assert kinds == ["paragraph", "paragraph", "separator", "paragraph"]
+    assert chunks[1].content == "Brief."
+
+
+# ------------------------------------------------------------------
+# Separators
+# ------------------------------------------------------------------
 
 
 def test_separator_detected():
@@ -94,6 +160,11 @@ def test_separator_variants():
         assert len(separators) == 1, f"Expected separator for {sep!r}"
 
 
+# ------------------------------------------------------------------
+# Headings and chapter tracking
+# ------------------------------------------------------------------
+
+
 def test_heading_kind():
     text = (
         "CHAPTER I\n\nIt was a bright cold day in April, and the clocks were striking thirteen.\n"
@@ -102,49 +173,6 @@ def test_heading_kind():
     assert chunks[0].kind == "heading"
     assert chunks[0].content == "CHAPTER I"
     assert chunks[1].kind == "paragraph"
-
-
-def test_all_blocks_preserved():
-    """Nothing is discarded — all text blocks get a position."""
-    text = (
-        "CHAPTER I\n"
-        "\n"
-        "Hi\n"
-        "\n"
-        "A full paragraph with enough text to be classified as a real paragraph.\n"
-        "\n"
-        "* * *\n"
-        "\n"
-        "Ok\n"
-    )
-    chunks = chunk_text(text)
-    assert len(chunks) == 5
-    kinds = [c.kind for c in chunks]
-    assert kinds == ["heading", "short", "paragraph", "separator", "short"]
-
-
-def test_reconstruct_text_from_chunks():
-    """Joining all chunk contents reproduces the original (modulo blank lines)."""
-    text = (
-        "CHAPTER I\n"
-        "\n"
-        "'Yes.'\n"
-        "\n"
-        "A paragraph with enough content to clear the minimum length threshold.\n"
-        "\n"
-        "* * *\n"
-    )
-    chunks = chunk_text(text)
-    reconstructed = "\n\n".join(c.content for c in chunks)
-    # Each original block should appear in the reconstruction.
-    assert "CHAPTER I" in reconstructed
-    assert "'Yes.'" in reconstructed
-    assert "* * *" in reconstructed
-
-
-# ------------------------------------------------------------------
-# Chapter detection
-# ------------------------------------------------------------------
 
 
 def test_detects_chapter_heading():
@@ -198,11 +226,58 @@ def test_heading_variants():
 
 
 # ------------------------------------------------------------------
+# Reconstruction
+# ------------------------------------------------------------------
+
+
+def test_reconstruct_text_from_chunks():
+    """Joining all chunk contents reproduces the original (modulo blank lines)."""
+    text = (
+        "CHAPTER I\n"
+        "\n"
+        "'Yes.'\n"
+        "\n"
+        "A paragraph with enough content to clear the minimum length threshold.\n"
+        "\n"
+        "* * *\n"
+    )
+    chunks = chunk_text(text)
+    reconstructed = "\n\n".join(c.content for c in chunks)
+    assert "CHAPTER I" in reconstructed
+    assert "'Yes.'" in reconstructed
+    assert "* * *" in reconstructed
+
+
+def test_all_text_preserved():
+    """Nothing is discarded — all text appears in some chunk."""
+    text = (
+        "CHAPTER I\n"
+        "\n"
+        "Hi\n"
+        "\n"
+        "A full paragraph with enough text to be classified as a real paragraph.\n"
+        "\n"
+        "* * *\n"
+        "\n"
+        "Ok\n"
+    )
+    chunks = chunk_text(text)
+    reconstructed = "\n\n".join(c.content for c in chunks)
+    assert "Hi" in reconstructed
+    assert "A full paragraph" in reconstructed
+    assert "* * *" in reconstructed
+    assert "Ok" in reconstructed
+    # Only three kinds exist
+    kinds = {c.kind for c in chunks}
+    assert kinds <= {"paragraph", "heading", "separator"}
+
+
+# ------------------------------------------------------------------
 # Dickens excerpts — realistic literary structure
 # ------------------------------------------------------------------
 
 
-# Pickwick Papers (PG 580) — chapter opening with short dialogue
+# Pickwick Papers (PG 580) — chapter opening with quoted speech
 _PICKWICK_EXCERPT = """\
 CHAPTER I
 
@@ -230,12 +305,12 @@ def test_pickwick_excerpt():
     chunks = chunk_text(_PICKWICK_EXCERPT)
     kinds = [c.kind for c in chunks]
 
-    assert kinds[0] == "heading"
+    assert kinds == ["heading", "paragraph", "paragraph", "separator", "paragraph"]
     assert chunks[0].content == "CHAPTER I"
-    assert "paragraph" in kinds
-    assert "separator" in kinds
-    # The quoted speech blocks are long enough to be paragraphs here
     assert all(c.chapter == "CHAPTER I" for c in chunks)
+    # All blocks long enough — no accumulation needed
+    assert "Pickwick Club" in chunks[1].content
+    assert "G.C.M.P.C." in chunks[2].content
 
 
 # Oliver Twist (PG 730) — chapter with short dialogue lines
@@ -263,18 +338,24 @@ def test_oliver_excerpt():
     chunks = chunk_text(_OLIVER_EXCERPT)
     kinds = [c.kind for c in chunks]
 
-    # Heading, paragraph, then a mix of short dialogue and short narration
-    assert kinds[0] == "heading"
-    assert kinds[1] == "paragraph"
-    # Short dialogue lines are preserved
-    short_chunks = [c for c in chunks if c.kind == "short"]
-    assert any("Oliver Twist" in c.content for c in short_chunks)
-    assert any("What's your name" in c.content for c in short_chunks)
+    # heading, long paragraph, then two accumulated dialogue groups
+    assert kinds == ["heading", "paragraph", "paragraph", "paragraph"]
+    assert chunks[0].content == "CHAPTER I"
+
+    # First dialogue group: three short blocks accumulated together
+    assert "What's your name?" in chunks[2].content
+    assert "The boy hesitated." in chunks[2].content
+    assert "Oliver Twist." in chunks[2].content
+
+    # Second dialogue group: two short blocks accumulated together
+    assert "Where do you come from?" in chunks[3].content
+    assert "I have none, sir." in chunks[3].content
+
     # Everything is under CHAPTER I
     assert all(c.chapter == "CHAPTER I" for c in chunks)
 
 
-# Old Curiosity Shop (PG 700) — chapter with dinkus and brief paragraphs
+# Old Curiosity Shop (PG 700) — chapter with dinkus and trailing short text
 _CURIOSITY_SHOP_EXCERPT = """\
 CHAPTER I
 
@@ -298,18 +379,19 @@ def test_curiosity_shop_excerpt():
     chunks = chunk_text(_CURIOSITY_SHOP_EXCERPT)
     kinds = [c.kind for c in chunks]
 
-    assert kinds[0] == "heading"
-    assert kinds[1] == "paragraph"
-    assert "separator" in kinds
-    # Short dialogue is preserved
-    short_chunks = [c for c in chunks if c.kind == "short"]
-    assert any("where do you come from" in c.content.lower() for c in short_chunks)
-    assert any("She said no more" in c.content for c in short_chunks)
-    # Total block count — nothing lost
-    assert len(chunks) == 6  # heading, paragraph, separator, 2 dialogue, narration
+    # heading, long para, separator, dialogue pair, trailing narration
+    assert kinds == ["heading", "paragraph", "separator", "paragraph", "paragraph"]
+    assert chunks[0].content == "CHAPTER I"
+
+    # Dialogue pair accumulated into one chunk
+    assert "where do you come from" in chunks[3].content.lower()
+    assert "a long way from here" in chunks[3].content
+
+    # Trailing short text emitted as its own chunk (below min, at end-of-doc)
+    assert chunks[4].content == "She said no more."
 
 
-# Nicholas Nickleby (PG 967) — multi-chapter with short blocks
+# Nicholas Nickleby (PG 967) — multi-chapter with trailing text at boundaries
 _NICKLEBY_EXCERPT = """\
 CHAPTER I
 
@@ -338,21 +420,29 @@ He was a money-lender.
 
 def test_nickleby_excerpt():
     chunks = chunk_text(_NICKLEBY_EXCERPT)
+    kinds = [c.kind for c in chunks]
 
-    # Check chapters advance
-    ch1_chunks = [c for c in chunks if c.chapter == "CHAPTER I"]
-    ch2_chunks = [c for c in chunks if c.chapter == "CHAPTER II"]
-    assert len(ch1_chunks) >= 2  # heading + paragraph + dialogue
-    assert len(ch2_chunks) >= 2  # heading + paragraph + separator + short
+    # Two chapters with trailing short text at boundaries
+    assert kinds == [
+        "heading",
+        "paragraph",
+        "paragraph",  # trailing "'My dear,'" flushed before CHAPTER II
+        "heading",
+        "paragraph",
+        "separator",
+        "paragraph",  # trailing "He was a money-lender." at end-of-doc
+    ]
 
-    # The short dialogue is preserved
-    assert any(c.kind == "short" and "My dear" in c.content for c in chunks)
+    # Chapter labels advance correctly
+    assert chunks[2].chapter == "CHAPTER I"
+    assert chunks[2].content == "'My dear,' said Mrs. Nickleby."
 
-    # The separator is detected
-    assert any(c.kind == "separator" and "---" in c.content for c in chunks)
+    assert chunks[6].chapter == "CHAPTER II"
+    assert chunks[6].content == "He was a money-lender."
 
-    # Short final line is preserved
-    assert any(c.kind == "short" and "money-lender" in c.content for c in chunks)
+    # Separator detected
+    assert chunks[5].kind == "separator"
+    assert "---" in chunks[5].content
 
 
 def test_dickens_all_positions_unique():
@@ -362,3 +452,16 @@ def test_dickens_all_positions_unique():
         chunks = chunk_text(excerpt)
         positions = [c.position for c in chunks]
         assert positions == list(range(len(chunks)))
+
+
+def test_dickens_full_reconstruction():
+    """All text can be reconstructed from chunks across all excerpts."""
+    excerpts = [_PICKWICK_EXCERPT, _OLIVER_EXCERPT, _CURIOSITY_SHOP_EXCERPT, _NICKLEBY_EXCERPT]
+    for excerpt in excerpts:
+        chunks = chunk_text(excerpt)
+        reconstructed = "\n\n".join(c.content for c in chunks)
+        # Every non-blank line from the original should appear in the reconstruction
+        for line in excerpt.splitlines():
+            line = line.strip()
+            if line:
+                assert line in reconstructed, f"Missing: {line!r}"
