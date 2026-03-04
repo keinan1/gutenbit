@@ -19,9 +19,9 @@ uv sync
 
 ## Architecture
 
-- `src/gutenbit/catalog.py` — CSV catalog fetch and search
-- `src/gutenbit/download.py` — Text download and header/footer stripping
-- `src/gutenbit/db.py` — SQLite storage
+- `gutenbit/catalog.py` — CSV catalog fetch and search
+- `gutenbit/download.py` — Text download and header/footer stripping
+- `gutenbit/db.py` — SQLite storage
 
 ## Style
 
