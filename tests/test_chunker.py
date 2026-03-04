@@ -1,4 +1,4 @@
-"""Tests for paragraph accumulation, kind labelling, and chapter detection."""
+"""Tests for chunker: structural labelling, accumulation, and chapter detection."""
 
 from gutenbit.chunker import chunk_text
 
@@ -59,7 +59,6 @@ def test_accumulates_short_blocks():
     assert "'Hello.'" in chunks[0].content
     assert "'Hi there.'" in chunks[0].content
     assert "'How are you today?'" in chunks[0].content
-    # Paragraphs joined with double newline
     assert "\n\n" in chunks[0].content
 
 
@@ -73,10 +72,8 @@ def test_accumulation_emits_at_threshold():
         "Another real paragraph with sufficient length to be indexed properly.\n"
     )
     chunks = chunk_text(text)
-    # First paragraph is long enough on its own → emitted
     assert chunks[0].kind == "paragraph"
     assert chunks[0].content.startswith("This is a real")
-    # "'Yes,' he said." is short but gets accumulated with next paragraph
     assert len(chunks) == 2
     assert "'Yes,' he said." in chunks[1].content
     assert "Another real paragraph" in chunks[1].content
@@ -108,56 +105,6 @@ def test_trailing_below_min_emitted_at_end():
     chunks = chunk_text(text)
     assert len(chunks) == 2
     assert chunks[1].content == "Ok."
-
-
-def test_trailing_below_min_emitted_at_separator():
-    """Short text before a separator is emitted as its own chunk."""
-    text = (
-        "A long paragraph with enough text to be emitted on its own merits.\n"
-        "\n"
-        "Brief.\n"
-        "\n"
-        "* * *\n"
-        "\n"
-        "More text that is long enough to be emitted as a paragraph chunk.\n"
-    )
-    chunks = chunk_text(text)
-    kinds = [c.kind for c in chunks]
-    assert kinds == ["paragraph", "paragraph", "separator", "paragraph"]
-    assert chunks[1].content == "Brief."
-
-
-# ------------------------------------------------------------------
-# Separators
-# ------------------------------------------------------------------
-
-
-def test_separator_detected():
-    text = (
-        "Some content that is long enough to pass the minimum length filter.\n"
-        "\n"
-        "* * *\n"
-        "\n"
-        "More content that is long enough to pass the minimum length filter.\n"
-    )
-    chunks = chunk_text(text)
-    assert len(chunks) == 3
-    assert chunks[1].kind == "separator"
-    assert chunks[1].content == "* * *"
-
-
-def test_separator_variants():
-    for sep in ["* * *", "***", "---", "===", "* * * * *", "----------"]:
-        text = (
-            "Content before the separator is long enough to be a paragraph.\n"
-            "\n"
-            f"{sep}\n"
-            "\n"
-            "Content after the separator is long enough to be a paragraph too.\n"
-        )
-        chunks = chunk_text(text)
-        separators = [c for c in chunks if c.kind == "separator"]
-        assert len(separators) == 1, f"Expected separator for {sep!r}"
 
 
 # ------------------------------------------------------------------
@@ -226,6 +173,141 @@ def test_heading_variants():
 
 
 # ------------------------------------------------------------------
+# Front matter and TOC detection
+# ------------------------------------------------------------------
+
+
+def test_front_matter_before_chapter():
+    """Title page content before the first real chapter is front_matter."""
+    text = (
+        "HARD TIMES\n"
+        "\n"
+        "By CHARLES DICKENS\n"
+        "\n"
+        "LONDON: CHAPMAN & HALL\n"
+        "\n"
+        "CHAPTER I\n"
+        "\n"
+        "Now, what I want is, Facts. Teach these boys and girls nothing but "
+        "Facts. Facts alone are wanted in life. Plant nothing else, and root "
+        "out everything else.\n"
+    )
+    chunks = chunk_text(text)
+    kinds = [c.kind for c in chunks]
+    assert kinds == ["front_matter", "front_matter", "front_matter", "heading", "paragraph"]
+    assert chunks[0].content == "HARD TIMES"
+    assert chunks[3].content == "CHAPTER I"
+
+
+def test_toc_detected():
+    """CONTENTS section is labelled as toc, preceding text as front_matter."""
+    text = (
+        "HARD TIMES\n"
+        "\n"
+        "By CHARLES DICKENS\n"
+        "\n"
+        "CONTENTS\n"
+        "\n"
+        "CHAPTER I\n"
+        "_The One Thing Needful_                3\n"
+        "\n"
+        "CHAPTER II\n"
+        "_Murdering the Innocents_              4\n"
+        "\n"
+        "BOOK THE FIRST\n"
+        "_SOWING_\n"
+        "\n"
+        "CHAPTER I\n"
+        "THE ONE THING NEEDFUL\n"
+        "\n"
+        "Now, what I want is, Facts. Teach these boys and girls nothing but "
+        "Facts. Facts alone are wanted in life. Plant nothing else, and root "
+        "out everything else.\n"
+    )
+    chunks = chunk_text(text)
+    kinds = [c.kind for c in chunks]
+    # Title, author = front_matter; CONTENTS + entries = toc; then body
+    assert kinds[:2] == ["front_matter", "front_matter"]
+    toc_chunks = [c for c in chunks if c.kind == "toc"]
+    assert len(toc_chunks) >= 1
+    assert any("CONTENTS" in c.content for c in toc_chunks)
+    # Body starts with heading
+    body = [c for c in chunks if c.kind in ("heading", "paragraph")]
+    assert body[0].kind == "heading"
+
+
+def test_table_of_contents_variant():
+    """'TABLE OF CONTENTS' also triggers toc labelling."""
+    text = (
+        "A TALE OF TWO CITIES\n"
+        "\n"
+        "TABLE OF CONTENTS\n"
+        "\n"
+        "Book I — Recalled to Life\n"
+        "\n"
+        "CHAPTER I\n"
+        "\n"
+        "It was the best of times, it was the worst of times, it was the age "
+        "of wisdom, it was the age of foolishness, it was the season of light.\n"
+    )
+    chunks = chunk_text(text)
+    assert chunks[0].kind == "front_matter"
+    assert chunks[1].kind == "toc"
+    assert chunks[1].content == "TABLE OF CONTENTS"
+
+
+def test_no_front_matter_when_chapter_first():
+    """Text starting with a chapter heading has no front_matter."""
+    text = (
+        "CHAPTER I\n\nIt was a bright cold day in April, and the clocks were striking thirteen.\n"
+    )
+    chunks = chunk_text(text)
+    kinds = [c.kind for c in chunks]
+    assert "front_matter" not in kinds
+    assert "toc" not in kinds
+    assert kinds == ["heading", "paragraph"]
+
+
+# ------------------------------------------------------------------
+# End matter detection
+# ------------------------------------------------------------------
+
+
+def test_footnotes_labelled_as_end_matter():
+    """Content starting with FOOTNOTES is labelled as end_matter."""
+    text = (
+        "CHAPTER I\n"
+        "\n"
+        "The last paragraph of the story, long enough to pass the minimum threshold.\n"
+        "\n"
+        "FOOTNOTES\n"
+        "\n"
+        "{0} This is a footnote about the text.\n"
+    )
+    chunks = chunk_text(text)
+    kinds = [c.kind for c in chunks]
+    assert kinds == ["heading", "paragraph", "end_matter"]
+    assert "FOOTNOTES" in chunks[2].content
+    assert "footnote about" in chunks[2].content
+
+
+def test_appendix_labelled_as_end_matter():
+    text = (
+        "CHAPTER I\n"
+        "\n"
+        "A paragraph with enough text to be emitted as a proper paragraph chunk.\n"
+        "\n"
+        "APPENDIX\n"
+        "\n"
+        "Additional material.\n"
+    )
+    chunks = chunk_text(text)
+    end = [c for c in chunks if c.kind == "end_matter"]
+    assert len(end) == 1
+    assert "APPENDIX" in end[0].content
+
+
+# ------------------------------------------------------------------
 # Reconstruction
 # ------------------------------------------------------------------
 
@@ -267,9 +349,8 @@ def test_all_text_preserved():
     assert "A full paragraph" in reconstructed
     assert "* * *" in reconstructed
     assert "Ok" in reconstructed
-    # Only three kinds exist
     kinds = {c.kind for c in chunks}
-    assert kinds <= {"paragraph", "heading", "separator"}
+    assert kinds <= {"paragraph", "heading", "front_matter", "toc", "end_matter"}
 
 
 # ------------------------------------------------------------------
@@ -305,10 +386,10 @@ def test_pickwick_excerpt():
     chunks = chunk_text(_PICKWICK_EXCERPT)
     kinds = [c.kind for c in chunks]
 
-    assert kinds == ["heading", "paragraph", "paragraph", "separator", "paragraph"]
+    # heading, long para, long quoted speech, "* * *" accumulated with next speech
+    assert kinds == ["heading", "paragraph", "paragraph", "paragraph"]
     assert chunks[0].content == "CHAPTER I"
     assert all(c.chapter == "CHAPTER I" for c in chunks)
-    # All blocks long enough — no accumulation needed
     assert "Pickwick Club" in chunks[1].content
     assert "G.C.M.P.C." in chunks[2].content
 
@@ -342,16 +423,13 @@ def test_oliver_excerpt():
     assert kinds == ["heading", "paragraph", "paragraph", "paragraph"]
     assert chunks[0].content == "CHAPTER I"
 
-    # First dialogue group: three short blocks accumulated together
     assert "What's your name?" in chunks[2].content
     assert "The boy hesitated." in chunks[2].content
     assert "Oliver Twist." in chunks[2].content
 
-    # Second dialogue group: two short blocks accumulated together
     assert "Where do you come from?" in chunks[3].content
     assert "I have none, sir." in chunks[3].content
 
-    # Everything is under CHAPTER I
     assert all(c.chapter == "CHAPTER I" for c in chunks)
 
 
@@ -379,16 +457,16 @@ def test_curiosity_shop_excerpt():
     chunks = chunk_text(_CURIOSITY_SHOP_EXCERPT)
     kinds = [c.kind for c in chunks]
 
-    # heading, long para, separator, dialogue pair, trailing narration
-    assert kinds == ["heading", "paragraph", "separator", "paragraph", "paragraph"]
+    # heading, long para, "* * *" accumulated with dialogue, trailing narration
+    assert kinds == ["heading", "paragraph", "paragraph", "paragraph"]
     assert chunks[0].content == "CHAPTER I"
 
     # Dialogue pair accumulated into one chunk
-    assert "where do you come from" in chunks[3].content.lower()
-    assert "a long way from here" in chunks[3].content
+    assert "where do you come from" in chunks[2].content.lower()
+    assert "a long way from here" in chunks[2].content
 
-    # Trailing short text emitted as its own chunk (below min, at end-of-doc)
-    assert chunks[4].content == "She said no more."
+    # Trailing short text emitted as its own chunk
+    assert chunks[3].content == "She said no more."
 
 
 # Nicholas Nickleby (PG 967) — multi-chapter with trailing text at boundaries
@@ -429,20 +507,14 @@ def test_nickleby_excerpt():
         "paragraph",  # trailing "'My dear,'" flushed before CHAPTER II
         "heading",
         "paragraph",
-        "separator",
-        "paragraph",  # trailing "He was a money-lender." at end-of-doc
+        "paragraph",  # "---" accumulated with "He was a money-lender."
     ]
 
-    # Chapter labels advance correctly
     assert chunks[2].chapter == "CHAPTER I"
     assert chunks[2].content == "'My dear,' said Mrs. Nickleby."
 
-    assert chunks[6].chapter == "CHAPTER II"
-    assert chunks[6].content == "He was a money-lender."
-
-    # Separator detected
-    assert chunks[5].kind == "separator"
-    assert "---" in chunks[5].content
+    assert chunks[5].chapter == "CHAPTER II"
+    assert "He was a money-lender." in chunks[5].content
 
 
 def test_dickens_all_positions_unique():
@@ -460,8 +532,90 @@ def test_dickens_full_reconstruction():
     for excerpt in excerpts:
         chunks = chunk_text(excerpt)
         reconstructed = "\n\n".join(c.content for c in chunks)
-        # Every non-blank line from the original should appear in the reconstruction
         for line in excerpt.splitlines():
             line = line.strip()
             if line:
                 assert line in reconstructed, f"Missing: {line!r}"
+
+
+# ------------------------------------------------------------------
+# Full book structure — front matter + TOC + body + end matter
+# ------------------------------------------------------------------
+
+
+_FULL_BOOK_EXCERPT = """\
+HARD TIMES
+
+By CHARLES DICKENS
+
+LONDON: CHAPMAN & HALL, LD.
+
+1905
+
+CONTENTS
+
+CHAPTER I
+_The One Thing Needful_                3
+
+CHAPTER II
+_Murdering the Innocents_              4
+
+BOOK THE FIRST
+_SOWING_
+
+CHAPTER I
+THE ONE THING NEEDFUL
+
+Now, what I want is, Facts. Teach these boys and girls nothing but
+Facts. Facts alone are wanted in life. Plant nothing else, and root
+out everything else. You can only form the minds of reasoning animals
+upon Facts: nothing else will ever be of any service to them.
+
+'In this life, we want nothing but Facts, sir; nothing but Facts!'
+
+CHAPTER II
+MURDERING THE INNOCENTS
+
+Thomas Gradgrind, sir. A man of realities. A man of facts and
+calculations. A man who proceeds upon the principle that two and two
+are four, and nothing over, and who is not to be talked into allowing
+for anything over.
+
+FOOTNOTES
+
+{0} Reprinted Pieces was released as a separate eText by Project
+Gutenberg, and is not included in this eText.
+""".strip()
+
+
+def test_full_book_structure():
+    """A full book excerpt is split into front_matter, toc, heading, paragraph, end_matter."""
+    chunks = chunk_text(_FULL_BOOK_EXCERPT)
+
+    # Front matter: title, author, publisher, year
+    fm = [c for c in chunks if c.kind == "front_matter"]
+    assert len(fm) == 4
+    assert fm[0].content == "HARD TIMES"
+
+    # TOC: CONTENTS + entries
+    toc = [c for c in chunks if c.kind == "toc"]
+    assert len(toc) >= 1
+    assert any("CONTENTS" in c.content for c in toc)
+
+    # Body headings and paragraphs
+    headings = [c for c in chunks if c.kind == "heading"]
+    assert any("CHAPTER I" in c.content for c in headings)
+    paragraphs = [c for c in chunks if c.kind == "paragraph"]
+    assert any("Facts" in c.content for c in paragraphs)
+
+    # End matter
+    em = [c for c in chunks if c.kind == "end_matter"]
+    assert len(em) == 1
+    assert "FOOTNOTES" in em[0].content
+
+    # All text preserved
+    reconstructed = "\n\n".join(c.content for c in chunks)
+    for line in _FULL_BOOK_EXCERPT.splitlines():
+        line = line.strip()
+        if line:
+            assert line in reconstructed, f"Missing: {line!r}"
