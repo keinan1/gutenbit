@@ -1,0 +1,29 @@
+[project]
+name = "gutenbit"
+version = "0.1.0"
+description = "Download, parse, and store Project Gutenberg texts in SQLite"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 99
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+    "ty>=0.0.1a7",
+]
