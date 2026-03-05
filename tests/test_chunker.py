@@ -161,7 +161,7 @@ def test_no_chapter_gives_empty_string():
 
 
 def test_heading_variants():
-    for heading in ["BOOK III", "Part 2", "ACT IV", "SCENE 1", "Section 5", "STAVE I"]:
+    for heading in ["BOOK III", "Part 2", "ACT IV", "SCENE 1", "Section 5", "STAVE I", "CHAPTER. XVIII."]:
         content = "Some content that is long enough to pass the minimum length filter."
         text = f"{heading}\n\n{content}\n"
         chunks = chunk_text(text)
