@@ -55,6 +55,10 @@ def _build_parser() -> argparse.ArgumentParser:
     se.add_argument("--kind", help="filter by chunk kind")
     se.add_argument("-n", "--limit", type=int, default=20, help="max results (default: 20)")
 
+    # --- toc ---
+    toc = sub.add_parser("toc", help="print the table of contents for a stored book")
+    toc.add_argument("book_id", type=int, help="Project Gutenberg book ID")
+
     # --- text ---
     tx = sub.add_parser("text", help="print the full text of a stored book")
     tx.add_argument("book_id", type=int, help="Project Gutenberg book ID")
@@ -169,6 +173,72 @@ def _cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_toc(args: argparse.Namespace) -> int:
+    with Database(args.db) as db:
+        all_chunks = db.chunks(args.book_id)
+        stored_books = db.books()
+    if not all_chunks:
+        print(f"No chunks found for book {args.book_id}.")
+        return 1
+
+    title = ""
+    for b in stored_books:
+        if b.id == args.book_id:
+            title = b.title
+            break
+
+    # Build sections: each heading plus counts of paragraphs that follow it
+    sections: list[dict[str, str | int]] = []
+    for pos, div1, div2, div3, div4, content, kind, char_count in all_chunks:
+        if kind == "heading":
+            sections.append(
+                {
+                    "div1": div1,
+                    "div2": div2,
+                    "div3": div3,
+                    "div4": div4,
+                    "heading": content,
+                    "position": pos,
+                    "paragraphs": 0,
+                    "chars": 0,
+                }
+            )
+        elif kind == "paragraph" and sections:
+            sections[-1]["paragraphs"] = int(sections[-1]["paragraphs"]) + 1
+            sections[-1]["chars"] = int(sections[-1]["chars"]) + char_count
+
+    if title:
+        print(f"# {title} (id={args.book_id})\n")
+
+    # Print with indentation reflecting hierarchy
+    for sec in sections:
+        div1 = sec["div1"]
+        div2 = sec["div2"]
+        div3 = sec["div3"]
+        div4 = sec["div4"]
+
+        # Indent: div1-only=0, div2=2, div3=4, div4=6
+        if div4:
+            indent = 6
+        elif div3:
+            indent = 4
+        elif div2:
+            indent = 2
+        else:
+            indent = 0
+
+        divs = "/".join(str(d) for d in [div1, div2, div3, div4] if d)
+        stats = f"({sec['paragraphs']} paragraphs, {sec['chars']} chars)"
+        print(f"{' ' * indent}{sec['heading']}")
+        print(f"{' ' * indent}  div={divs}  {stats}")
+
+    print(f"\n{len(sections)} section(s)")
+    # Print a hint for agent usage
+    bid = args.book_id
+    print(f"\nFilter searches with: gutenbit search <query> --book-id {bid} --kind paragraph")
+    return 0
+
+
 def _cmd_text(args: argparse.Namespace) -> int:
     with Database(args.db) as db:
         content = db.text(args.book_id)
@@ -185,6 +255,7 @@ _COMMANDS = {
     "books": _cmd_books,
     "chunks": _cmd_chunks,
     "search": _cmd_search,
+    "toc": _cmd_toc,
     "text": _cmd_text,
 }
 
