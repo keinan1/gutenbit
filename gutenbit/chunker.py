@@ -116,12 +116,21 @@ def _find_body_start(blocks: list[str]) -> int:
     Looks for a heading followed within 5 blocks by a substantial prose
     block (≥100 chars).  TOC chapter references are naturally skipped
     because they are followed by more short entries, not prose.
+
+    When prose is found, returns the heading *immediately preceding* it
+    (not the first heading that triggered the scan), so that a long TOC
+    with trailing headings close to the first prose paragraph does not
+    push the body start too early.
     """
     for i, block in enumerate(blocks):
         if not _is_heading(block):
             continue
         for j in range(i + 1, min(i + 6, len(blocks))):
             if not _is_heading(blocks[j]) and len(blocks[j]) >= 100:
+                # Walk back from the prose block to the nearest heading.
+                for k in range(j - 1, i - 1, -1):
+                    if _is_heading(blocks[k]):
+                        return k
                 return i
     return 0
 

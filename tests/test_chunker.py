@@ -284,6 +284,30 @@ def test_no_front_matter_when_chapter_first():
     assert kinds == ["heading", "paragraph"]
 
 
+def test_body_start_not_stolen_by_toc_heading_near_prose():
+    """A long TOC ending with chapter entries near the first prose must not
+    push body_start back into the TOC (War and Peace regression)."""
+    # TOC ends: ...CHAPTER VIII, CHAPTER IX, separator, then actual body starts.
+    toc_chapters = "\n\n".join(f"CHAPTER {n}" for n in ["VII", "VIII", "IX"])
+    separator = "BOOK ONE: 1805"  # short non-heading between TOC and body
+    body = (
+        "CHAPTER I\n"
+        "\n"
+        "Well, Prince, so Genoa and Lucca are now just family estates of the "
+        "Buonapartes. But I warn you, if you don't tell me that this means war, "
+        "if you still try to defend the infamies and horrors perpetrated by that "
+        "Antichrist—I really believe he is Antichrist—I will have nothing more "
+        "to do with you.\n"
+    )
+    text = f"CONTENTS\n\n{toc_chapters}\n\n{separator}\n\n{body}"
+    chunks = chunk_text(text)
+    headings = [c for c in chunks if c.kind == "heading"]
+    # The first heading in the body must be CHAPTER I, not CHAPTER VII/VIII/IX
+    assert headings[0].content == "CHAPTER I"
+    paragraphs = [c for c in chunks if c.kind == "paragraph"]
+    assert all(c.chapter == "CHAPTER I" for c in paragraphs)
+
+
 # ------------------------------------------------------------------
 # End matter detection
 # ------------------------------------------------------------------
