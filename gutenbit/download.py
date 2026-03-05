@@ -11,12 +11,13 @@ TEXT_URL = "https://www.gutenberg.org/ebooks/{id}.txt.utf-8"
 # These patterns match only the exact standard Gutenberg delimiters:
 #   *** START OF THE PROJECT GUTENBERG EBOOK <TITLE> ***
 #   *** END OF THE PROJECT GUTENBERG EBOOK <TITLE> ***
+# Some older texts use "THIS" instead of "THE".
 _START_MARKER_RE = re.compile(
-    r"^\*{3}\s+START OF THE PROJECT GUTENBERG EBOOK\b.*\*{3}\s*$",
+    r"^\*{3}\s+START OF (?:THE|THIS) PROJECT GUTENBERG EBOOK\b.*\*{3}\s*$",
     re.IGNORECASE,
 )
 _END_MARKER_RE = re.compile(
-    r"^\*{3}\s+END OF THE PROJECT GUTENBERG EBOOK\b.*\*{3}\s*$",
+    r"^\*{3}\s+END OF (?:THE|THIS) PROJECT GUTENBERG EBOOK\b.*\*{3}\s*$",
     re.IGNORECASE,
 )
 

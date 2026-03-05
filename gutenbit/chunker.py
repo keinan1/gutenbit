@@ -36,8 +36,14 @@ _ORDINAL_WORDS = (
     "eleventh|twelfth|thirteenth|fourteenth|fifteenth"
 )
 _HEADING_RE = re.compile(
-    r"^(?:CHAPTER|BOOK|PART|ACT|SCENE|SECTION|STAVE)"
+    r"^(?:CHAPTER|BOOK|PART|ACT|SCENE|SECTION|STAVE|EPILOGUE)"
     r"\.?\s+(?:[\dIVXLCDMivxlcdm]+|(?:" + _ORDINAL_WORDS + r"))[.:]?(?:\s.*)?$",
+    re.IGNORECASE,
+)
+# Matches standalone or ordinal-prefixed epilogue headings.
+# Examples: "EPILOGUE", "FIRST EPILOGUE: 1813 - 20", "SECOND EPILOGUE"
+_EPILOGUE_RE = re.compile(
+    r"^(?:(?:" + _ORDINAL_WORDS + r")\s+)?EPILOGUE[.:]?(?:\s.*)?$",
     re.IGNORECASE,
 )
 
@@ -57,6 +63,7 @@ _HEADING_RANK: dict[str, int] = {
     "book": 1,
     "part": 1,
     "act": 1,
+    "epilogue": 1,
     "chapter": 2,
     "stave": 2,
     "scene": 2,
@@ -106,8 +113,13 @@ def chunk_text(text: str) -> list[Chunk]:
         kind = "toc" if toc_start is not None and i >= toc_start else "front_matter"
         chunks.append(
             Chunk(
-                position=position, div1="", div2="", div3="", div4="",
-                content=blocks[i], kind=kind,
+                position=position,
+                div1="",
+                div2="",
+                div3="",
+                div4="",
+                content=blocks[i],
+                kind=kind,
             )
         )
         position += 1
@@ -125,8 +137,13 @@ def chunk_text(text: str) -> list[Chunk]:
         kind = "end_matter" if in_end_matter else "paragraph"
         chunks.append(
             Chunk(
-                position=position, div1=divs[0], div2=divs[1], div3=divs[2], div4=divs[3],
-                content=content, kind=kind,
+                position=position,
+                div1=divs[0],
+                div2=divs[1],
+                div3=divs[2],
+                div4=divs[3],
+                content=content,
+                kind=kind,
             )
         )
         position += 1
@@ -152,8 +169,13 @@ def chunk_text(text: str) -> list[Chunk]:
                 divs[lvl] = ""
             chunks.append(
                 Chunk(
-                    position=position, div1=divs[0], div2=divs[1], div3=divs[2], div4=divs[3],
-                    content=block, kind="heading",
+                    position=position,
+                    div1=divs[0],
+                    div2=divs[1],
+                    div3=divs[2],
+                    div4=divs[3],
+                    content=block,
+                    kind="heading",
                 )
             )
             position += 1
@@ -201,18 +223,23 @@ def _find_body_start(blocks: list[str]) -> int:
 
 def _heading_rank(block: str) -> int:
     """Return the structural rank (1 = broadest) for a heading block."""
-    keyword = block.split()[0].rstrip(".]").lower()
+    words = block.split()
+    keyword = words[0].rstrip(".],:").lower()
+    if keyword not in _HEADING_RANK and len(words) > 1:
+        # Handle ordinal-prefixed forms like "FIRST EPILOGUE", "SECOND EPILOGUE"
+        keyword = words[1].rstrip(".],:").lower()
     return _HEADING_RANK.get(keyword, 2)
 
 
 def _is_heading(block: str) -> bool:
     """Return True if *block* looks like a chapter/section heading."""
     lines = block.splitlines()
-    if len(lines) > 3:
+    if len(lines) > 5:
         return False
     # Strip a trailing ']' that may appear when a chapter heading is embedded
     # inside a split [Illustration: ...] tag (e.g. "Chapter I.]").
-    return bool(_HEADING_RE.match(lines[0].strip().rstrip("]")))
+    first = lines[0].strip().rstrip("]")
+    return bool(_HEADING_RE.match(first) or _EPILOGUE_RE.match(first))
 
 
 def _is_toc_header(block: str) -> bool:
