@@ -7,6 +7,17 @@ Chunk kinds
 - ``"heading"``      — chapter / section headings
 - ``"paragraph"``    — prose text (short blocks accumulated to ≥ 50 chars)
 - ``"end_matter"``   — footnotes, appendices, etc. after the last chapter
+
+Structural divisions (div1–div4)
+---------------------------------
+Each chunk records its position in the book hierarchy via four fields:
+
+- ``div1`` — broadest division: BOOK, PART, ACT
+- ``div2`` — chapter-level: CHAPTER, STAVE, SCENE
+- ``div3`` — sub-chapter: SECTION
+- ``div4`` — reserved for deeper nesting
+
+Fields are empty strings when the corresponding level has not yet appeared.
 """
 
 from __future__ import annotations
@@ -33,22 +44,41 @@ _END_MATTER_RE = re.compile(
 # Minimum character length for a paragraph chunk.
 _MIN_CHUNK_LEN = 50
 
+# Maps lowercase heading keyword → structural rank (1 = broadest).
+# Any unrecognised keyword defaults to rank 2.
+_HEADING_RANK: dict[str, int] = {
+    "book": 1,
+    "part": 1,
+    "act": 1,
+    "chapter": 2,
+    "stave": 2,
+    "scene": 2,
+    "section": 3,
+}
+
 
 @dataclass(frozen=True, slots=True)
 class Chunk:
     """A discrete text block extracted from a book, labelled by kind."""
 
     position: int
-    chapter: str
+    div1: str  # broadest division (BOOK, PART, ACT)
+    div2: str  # chapter-level (CHAPTER, STAVE, SCENE)
+    div3: str  # sub-chapter (SECTION)
+    div4: str  # reserved
     content: str
     kind: str
 
 
 def chunk_text(text: str) -> list[Chunk]:
-    """Split *text* into labelled chunks, tracking chapter headings.
+    """Split *text* into labelled chunks, tracking structural divisions.
 
     Returns chunks in document order so that
     ``"\\n\\n".join(c.content for c in chunks)`` reproduces the text.
+
+    Each chunk carries ``div1``–``div4`` reflecting its position in the
+    book hierarchy at the point it appears (e.g. ``div1="PART II"``,
+    ``div2="CHAPTER III"``).  Levels not yet encountered are empty strings.
     """
     blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
     if not blocks:
@@ -67,11 +97,16 @@ def chunk_text(text: str) -> list[Chunk]:
 
     for i in range(body_start):
         kind = "toc" if toc_start is not None and i >= toc_start else "front_matter"
-        chunks.append(Chunk(position=position, chapter="", content=blocks[i], kind=kind))
+        chunks.append(
+            Chunk(
+                position=position, div1="", div2="", div3="", div4="",
+                content=blocks[i], kind=kind,
+            )
+        )
         position += 1
 
     # --- Body: headings, paragraphs, end matter ---
-    chapter = ""
+    divs = ["", "", "", ""]  # [div1, div2, div3, div4]
     buffer: list[str] = []
     in_end_matter = False
 
@@ -81,7 +116,12 @@ def chunk_text(text: str) -> list[Chunk]:
             return
         content = "\n\n".join(buffer)
         kind = "end_matter" if in_end_matter else "paragraph"
-        chunks.append(Chunk(position=position, chapter=chapter, content=content, kind=kind))
+        chunks.append(
+            Chunk(
+                position=position, div1=divs[0], div2=divs[1], div3=divs[2], div4=divs[3],
+                content=content, kind=kind,
+            )
+        )
         position += 1
         buffer.clear()
 
@@ -98,8 +138,17 @@ def chunk_text(text: str) -> list[Chunk]:
 
         if _is_heading(block):
             _flush()
-            chapter = _normalise_heading(block)
-            chunks.append(Chunk(position=position, chapter=chapter, content=block, kind="heading"))
+            rank = _heading_rank(block)
+            divs[rank - 1] = _normalise_heading(block)
+            # Clear all finer-grained divisions when a broader one is set.
+            for lvl in range(rank, 4):
+                divs[lvl] = ""
+            chunks.append(
+                Chunk(
+                    position=position, div1=divs[0], div2=divs[1], div3=divs[2], div4=divs[3],
+                    content=block, kind="heading",
+                )
+            )
             position += 1
         else:
             buffer.append(block)
@@ -138,6 +187,12 @@ def _find_body_start(blocks: list[str]) -> int:
                         return k
                 return i
     return 0
+
+
+def _heading_rank(block: str) -> int:
+    """Return the structural rank (1 = broadest) for a heading block."""
+    keyword = block.split()[0].rstrip(".]").lower()
+    return _HEADING_RANK.get(keyword, 2)
 
 
 def _is_heading(block: str) -> bool:

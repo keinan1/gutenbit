@@ -96,7 +96,7 @@ def test_trailing_below_min_emitted_at_section_break():
     kinds = [c.kind for c in chunks]
     assert kinds == ["heading", "paragraph", "paragraph", "heading", "paragraph"]
     assert chunks[2].content == "'My dear.'"
-    assert chunks[2].chapter == "CHAPTER I"
+    assert chunks[2].div2 == "CHAPTER I"
 
 
 def test_trailing_below_min_emitted_at_end():
@@ -135,8 +135,8 @@ def test_detects_chapter_heading():
     chunks = chunk_text(text)
     paragraphs = [c for c in chunks if c.kind == "paragraph"]
     assert len(paragraphs) == 2
-    assert paragraphs[0].chapter == "CHAPTER I"
-    assert paragraphs[1].chapter == "CHAPTER II"
+    assert paragraphs[0].div2 == "CHAPTER I"
+    assert paragraphs[1].div2 == "CHAPTER II"
 
 
 def test_chapter_label_persists():
@@ -150,26 +150,36 @@ def test_chapter_label_persists():
     chunks = chunk_text(text)
     paragraphs = [c for c in chunks if c.kind == "paragraph"]
     assert len(paragraphs) == 2
-    assert paragraphs[0].chapter == "Chapter 1"
-    assert paragraphs[1].chapter == "Chapter 1"
+    assert paragraphs[0].div2 == "Chapter 1"
+    assert paragraphs[1].div2 == "Chapter 1"
 
 
 def test_no_chapter_gives_empty_string():
     text = "A paragraph without any preceding chapter heading, long enough to index.\n"
     chunks = chunk_text(text)
-    assert chunks[0].chapter == ""
+    assert chunks[0].div1 == "" and chunks[0].div2 == ""
 
 
 def test_heading_variants():
-    for heading in ["BOOK III", "Part 2", "ACT IV", "SCENE 1", "Section 5", "STAVE I", "CHAPTER. XVIII."]:
-        content = "Some content that is long enough to pass the minimum length filter."
+    # Maps heading keyword → (div_field, expected_normalised_value)
+    _cases = [
+        ("BOOK III",        "div1", "BOOK III"),
+        ("Part 2",          "div1", "Part 2"),
+        ("ACT IV",          "div1", "ACT IV"),
+        ("SCENE 1",         "div2", "SCENE 1"),
+        ("Section 5",       "div3", "Section 5"),
+        ("STAVE I",         "div2", "STAVE I"),
+        ("CHAPTER. XVIII.", "div2", "CHAPTER. XVIII."),
+    ]
+    content = "Some content that is long enough to pass the minimum length filter."
+    for heading, div_field, expected in _cases:
         text = f"{heading}\n\n{content}\n"
         chunks = chunk_text(text)
         heading_chunks = [c for c in chunks if c.kind == "heading"]
-        assert len(heading_chunks) == 1
+        assert len(heading_chunks) == 1, heading
         assert heading_chunks[0].content == heading
         paragraphs = [c for c in chunks if c.kind == "paragraph"]
-        assert paragraphs[0].chapter == heading
+        assert getattr(paragraphs[0], div_field) == expected, heading
 
 
 def test_stave_heading_with_colon_title():
@@ -185,7 +195,7 @@ def test_stave_heading_with_colon_title():
     assert len(headings) == 1
     assert headings[0].content == "STAVE I:  MARLEY'S GHOST"  # raw block preserved
     paragraphs = [c for c in chunks if c.kind == "paragraph"]
-    assert paragraphs[0].chapter == "STAVE I: MARLEY'S GHOST"  # normalised (double space collapsed)
+    assert paragraphs[0].div2 == "STAVE I: MARLEY'S GHOST"  # normalised (double space collapsed)
 
 
 def test_heading_with_trailing_bracket():
@@ -202,7 +212,7 @@ def test_heading_with_trailing_bracket():
     assert len(headings) == 1
     assert headings[0].content == "Chapter I.]"  # raw block preserved
     paragraphs = [c for c in chunks if c.kind == "paragraph"]
-    assert paragraphs[0].chapter == "Chapter I."  # ']' stripped from label
+    assert paragraphs[0].div2 == "Chapter I."  # ']' stripped from label
 
 
 # ------------------------------------------------------------------
@@ -322,7 +332,7 @@ def test_body_start_not_stolen_by_toc_heading_near_prose():
     # The first heading in the body must be CHAPTER I, not CHAPTER VII/VIII/IX
     assert headings[0].content == "CHAPTER I"
     paragraphs = [c for c in chunks if c.kind == "paragraph"]
-    assert all(c.chapter == "CHAPTER I" for c in paragraphs)
+    assert all(c.div2 == "CHAPTER I" for c in paragraphs)
 
 
 def test_part_heading_before_chapter_included_in_body():
@@ -470,7 +480,7 @@ def test_pickwick_excerpt():
     # heading, long para, long quoted speech, "* * *" accumulated with next speech
     assert kinds == ["heading", "paragraph", "paragraph", "paragraph"]
     assert chunks[0].content == "CHAPTER I"
-    assert all(c.chapter == "CHAPTER I" for c in chunks)
+    assert all(c.div2 == "CHAPTER I" for c in chunks)
     assert "Pickwick Club" in chunks[1].content
     assert "G.C.M.P.C." in chunks[2].content
 
@@ -511,7 +521,7 @@ def test_oliver_excerpt():
     assert "Where do you come from?" in chunks[3].content
     assert "I have none, sir." in chunks[3].content
 
-    assert all(c.chapter == "CHAPTER I" for c in chunks)
+    assert all(c.div2 == "CHAPTER I" for c in chunks)
 
 
 # Old Curiosity Shop (PG 700) — chapter with dinkus and trailing short text
@@ -591,10 +601,10 @@ def test_nickleby_excerpt():
         "paragraph",  # "---" accumulated with "He was a money-lender."
     ]
 
-    assert chunks[2].chapter == "CHAPTER I"
+    assert chunks[2].div2 == "CHAPTER I"
     assert chunks[2].content == "'My dear,' said Mrs. Nickleby."
 
-    assert chunks[5].chapter == "CHAPTER II"
+    assert chunks[5].div2 == "CHAPTER II"
     assert "He was a money-lender." in chunks[5].content
 
 
@@ -700,3 +710,62 @@ def test_full_book_structure():
         line = line.strip()
         if line:
             assert line in reconstructed, f"Missing: {line!r}"
+
+
+# ------------------------------------------------------------------
+# Hierarchical divisions (div1–div4)
+# ------------------------------------------------------------------
+
+
+def test_part_sets_div1_chapter_sets_div2():
+    """PART I sets div1; CHAPTER I below it sets div2; both appear on paragraphs."""
+    text = (
+        "PART I\n"
+        "\n"
+        "CHAPTER I\n"
+        "\n"
+        "On an exceptionally hot evening early in July a young man came out of "
+        "the garret in which he lodged in S. Place and walked slowly, as though "
+        "in hesitation, towards K. bridge.\n"
+    )
+    chunks = chunk_text(text)
+    part_heading = chunks[0]
+    chapter_heading = chunks[1]
+    para = chunks[2]
+
+    assert part_heading.kind == "heading"
+    assert part_heading.div1 == "PART I"
+    assert part_heading.div2 == ""
+
+    assert chapter_heading.kind == "heading"
+    assert chapter_heading.div1 == "PART I"
+    assert chapter_heading.div2 == "CHAPTER I"
+
+    assert para.kind == "paragraph"
+    assert para.div1 == "PART I"
+    assert para.div2 == "CHAPTER I"
+
+
+def test_new_part_clears_chapter():
+    """When a new PART heading is seen, div2 resets to empty string."""
+    text = (
+        "PART I\n"
+        "\n"
+        "CHAPTER I\n"
+        "\n"
+        "First part prose, long enough to pass the minimum length threshold here.\n"
+        "\n"
+        "PART II\n"
+        "\n"
+        "CHAPTER I\n"
+        "\n"
+        "Second part prose, long enough to pass the minimum length threshold here.\n"
+    )
+    chunks = chunk_text(text)
+    part2_heading = next(c for c in chunks if c.content == "PART II")
+    assert part2_heading.div1 == "PART II"
+    assert part2_heading.div2 == ""  # cleared when PART II started
+
+    para2 = chunks[-1]
+    assert para2.div1 == "PART II"
+    assert para2.div2 == "CHAPTER I"
