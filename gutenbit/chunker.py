@@ -140,7 +140,9 @@ def _is_heading(block: str) -> bool:
     lines = block.splitlines()
     if len(lines) > 3:
         return False
-    return bool(_HEADING_RE.match(lines[0].strip()))
+    # Strip a trailing ']' that may appear when a chapter heading is embedded
+    # inside a split [Illustration: ...] tag (e.g. "Chapter I.]").
+    return bool(_HEADING_RE.match(lines[0].strip().rstrip("]")))
 
 
 def _is_toc_header(block: str) -> bool:
@@ -155,4 +157,4 @@ def _is_end_matter(block: str) -> bool:
 
 def _normalise_heading(block: str) -> str:
     """Clean up a heading block into a concise chapter label."""
-    return " ".join(block.split())
+    return " ".join(block.split()).rstrip("]").strip()

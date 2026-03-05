@@ -188,6 +188,23 @@ def test_stave_heading_with_colon_title():
     assert paragraphs[0].chapter == "STAVE I: MARLEY'S GHOST"  # normalised (double space collapsed)
 
 
+def test_heading_with_trailing_bracket():
+    """Chapter headings ending with ']' (split illustration tags) are detected
+    and the ']' is stripped from the normalised chapter label."""
+    text = (
+        "Chapter I.]\n"
+        "\n"
+        "It is a truth universally acknowledged, that a single man in possession "
+        "of a good fortune must be in want of a wife.\n"
+    )
+    chunks = chunk_text(text)
+    headings = [c for c in chunks if c.kind == "heading"]
+    assert len(headings) == 1
+    assert headings[0].content == "Chapter I.]"  # raw block preserved
+    paragraphs = [c for c in chunks if c.kind == "paragraph"]
+    assert paragraphs[0].chapter == "Chapter I."  # ']' stripped from label
+
+
 # ------------------------------------------------------------------
 # Front matter and TOC detection
 # ------------------------------------------------------------------
