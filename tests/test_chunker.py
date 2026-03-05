@@ -325,6 +325,30 @@ def test_body_start_not_stolen_by_toc_heading_near_prose():
     assert all(c.chapter == "CHAPTER I" for c in paragraphs)
 
 
+def test_part_heading_before_chapter_included_in_body():
+    """A PART heading immediately before CHAPTER I must be body, not front matter
+    (Crime and Punishment regression: PART I was stranded as front_matter)."""
+    text = (
+        "Translator's preface with enough content to be a real prose block here.\n"
+        "\n"
+        "PART I\n"
+        "\n"
+        "CHAPTER I\n"
+        "\n"
+        "On an exceptionally hot evening early in July a young man came out of "
+        "the garret in which he lodged in S. Place and walked slowly, as though "
+        "in hesitation, towards K. bridge.\n"
+    )
+    chunks = chunk_text(text)
+    headings = [c for c in chunks if c.kind == "heading"]
+    # PART I must be in the body as a heading, not swallowed into front_matter
+    assert headings[0].content == "PART I"
+    assert headings[1].content == "CHAPTER I"
+    # The preface is legitimately front_matter; PART I must not be
+    front_matter_contents = [c.content for c in chunks if c.kind == "front_matter"]
+    assert not any("PART I" in s for s in front_matter_contents)
+
+
 # ------------------------------------------------------------------
 # End matter detection
 # ------------------------------------------------------------------

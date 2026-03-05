@@ -130,6 +130,11 @@ def _find_body_start(blocks: list[str]) -> int:
                 # Walk back from the prose block to the nearest heading.
                 for k in range(j - 1, i - 1, -1):
                     if _is_heading(blocks[k]):
+                        # Also step back through any directly preceding headings
+                        # (e.g. "PART I" immediately before "CHAPTER I") so they
+                        # are included in the body rather than front matter.
+                        while k > 0 and _is_heading(blocks[k - 1]):
+                            k -= 1
                         return k
                 return i
     return 0
