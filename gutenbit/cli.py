@@ -13,6 +13,7 @@ from gutenbit.db import ChunkRecord, Database
 
 DEFAULT_DB = "gutenbit.db"
 CHUNK_KINDS = ["front_matter", "heading", "paragraph", "end_matter"]
+JSON_OPENING_LINE_PREVIEW_CHARS = 140
 
 
 def _preview(text: str, limit: int) -> str:
@@ -637,7 +638,21 @@ def _render_section_summary(db: Database, book_id: int, *, as_json: bool = False
         print(f"No chunks found for book {book_id}.")
         return 1
     if as_json:
-        print(json.dumps(summary, indent=2))
+        json_summary = dict(summary)
+        raw_sections = summary.get("sections", [])
+        if isinstance(raw_sections, list):
+            json_sections: list[dict[str, object]] = []
+            for sec in raw_sections:
+                if not isinstance(sec, dict):
+                    continue
+                sec_json = dict(sec)
+                sec_json["opening_line"] = _preview(
+                    str(sec_json.get("opening_line", "")),
+                    JSON_OPENING_LINE_PREVIEW_CHARS,
+                )
+                json_sections.append(sec_json)
+            json_summary["sections"] = json_sections
+        print(json.dumps(json_summary, indent=2))
         return 0
 
     book = summary["book"]

@@ -408,6 +408,8 @@ def test_view_default_json(tmp_path):
     assert payload["overview"]["chunk_counts"]["heading"] == 2
     assert payload["sections"][0]["heading"] == "CHAPTER 1"
     assert payload["sections"][0]["est_words"] > 0
+    assert payload["sections"][0]["opening_line"].endswith("…")
+    assert len(payload["sections"][0]["opening_line"]) <= 141
     assert payload["quick_actions"]["search"] == (
         "gutenbit search <query> --book-id 1 --kind paragraph"
     )
