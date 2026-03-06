@@ -550,9 +550,9 @@ class TestCLICommands:
         assert "Paras" in result.stdout
         assert "Chars" in result.stdout
         assert "Read" in result.stdout
-        assert "Chunk ID" in result.stdout
+        assert "Position" in result.stdout
         assert "Opening" in result.stdout
-        assert "--chunk-id" in result.stdout
+        assert "--position" in result.stdout
         assert "\n    section=" not in result.stdout
 
     def test_cli_view_section_kind_filter(self, db_path: str):
@@ -566,20 +566,20 @@ class TestCLICommands:
         assert result.returncode == 0
         assert "3 chunk(s)" in result.stdout
 
-    def test_cli_view_chunk_id(self, db_path: str):
+    def test_cli_view_position(self, db_path: str):
         with Database(db_path) as db:
             row = db._conn.execute(
-                "SELECT id FROM chunks "
+                "SELECT position FROM chunks "
                 "WHERE book_id = ? AND kind = 'heading' "
                 "ORDER BY position LIMIT 1",
                 (46,),
             ).fetchone()
         assert row is not None
-        chunk_id = row["id"]
+        position = row["position"]
 
-        result = _run_cli("view", "46", "--chunk-id", str(chunk_id), db=db_path)
+        result = _run_cli("view", "46", "--position", str(position), db=db_path)
         assert result.returncode == 0
-        assert f"chunk={chunk_id}" in result.stdout
+        assert f"position={position}" in result.stdout
         assert "section=STAVE ONE" in result.stdout
 
     def test_cli_search(self, db_path: str):

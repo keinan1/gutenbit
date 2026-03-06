@@ -201,7 +201,7 @@ examples:
   gutenbit search "freedom" --kind paragraph -n 5           # filtered top hits
 
 output fields:
-  rank, book_id, chunk_id, position, title
+  rank, book_id, position, title
   section, score, kind, char_count
   preview text
 
@@ -249,7 +249,7 @@ tip: use 'gutenbit view <id>' first to see a book's structure, then
         help="browse structure and retrieve text/chunks for a stored book",
         description=(
             "Unified text-view command. By default prints a TOC-style structure summary. "
-            "Use exact selectors to retrieve the full book, one chunk by ID, "
+            "Use exact selectors to retrieve the full book, one chunk by position, "
             "or chunks under a section path."
         ),
         epilog="""\
@@ -257,13 +257,13 @@ examples:
   gutenbit view 2600                                 # structure summary
   gutenbit view 2600 --json                          # structure summary as JSON
   gutenbit view 2600 --all                           # full reconstructed text
-  gutenbit view 2600 --chunk-id 12345                # one exact chunk
-  gutenbit view 2600 --chunk-id 12345 --around 2     # chunk + neighbors
+  gutenbit view 2600 --position 12345                # one exact chunk position
+  gutenbit view 2600 --position 12345 --around 2     # position + neighbors
   gutenbit view 2600 --section "BOOK I/CHAPTER I" -n 10  # chunks in section
   gutenbit view 46 --section "STAVE ONE" --full          # full chunk text
 
 selectors (choose at most one):
-  --all | --chunk-id <id> | --section <SECTION_PATH>
+  --all | --position <n> | --section <SECTION_PATH>
 
 chunk kinds:  front_matter, heading, paragraph, end_matter
 section hierarchy:  level1 > level2 > level3 > level4  (compacted from shallowest heading)""",
@@ -275,13 +275,13 @@ section hierarchy:  level1 > level2 > level3 > level4  (compacted from shallowes
         help="print default summary as JSON (only without selectors)",
     )
     vw.add_argument("--all", action="store_true", help="print full reconstructed text")
-    vw.add_argument("--chunk-id", type=int, help="retrieve one exact chunk by chunk id")
+    vw.add_argument("--position", type=int, help="retrieve one exact chunk by position")
     vw.add_argument(
         "--section",
         help="retrieve chunks under section path prefix (e.g. PART ONE/CHAPTER I)",
     )
     vw.add_argument(
-        "--around", type=int, default=0, help="neighbors on each side (for --chunk-id)"
+        "--around", type=int, default=0, help="neighbors on each side (for --position)"
     )
     vw.add_argument(
         "--full", action="store_true", help="print full chunk text instead of previews"
@@ -424,7 +424,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
     for idx, r in enumerate(results, start=1):
         section = _section_path(r.div1, r.div2, r.div3, r.div4)
         preview = _preview(r.content, preview_chars)
-        print(f"\n{idx:>2}. book={r.book_id} chunk={r.chunk_id} pos={r.position}  title={r.title}")
+        print(f"\n{idx:>2}. book={r.book_id} position={r.position}  title={r.title}")
         print(f"    section={section}")
         print(f"    score={r.score:.2f}  kind={r.kind}  chars={r.char_count}")
         print(f"    {preview}")
@@ -435,7 +435,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
 
 def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | None:
     rows = db._conn.execute(
-        "SELECT id, position, div1, div2, div3, div4, content, kind, char_count "
+        "SELECT position, div1, div2, div3, div4, content, kind, char_count "
         "FROM chunks WHERE book_id = ? ORDER BY position",
         (book_id,),
     ).fetchall()
@@ -457,11 +457,10 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
     total_chars = 0
     opening_paragraphs = 0
     opening_chars = 0
-    opening_first_chunk_id: int | None = None
+    opening_first_position: int | None = None
     opening_line = ""
     for row in rows:
-        chunk_id = int(row["id"])
-        pos = int(row["position"])
+        position = int(row["position"])
         div1 = str(row["div1"])
         div2 = str(row["div2"])
         div3 = str(row["div3"])
@@ -478,10 +477,10 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
                 {
                     "heading": _single_line(content) or "(untitled section)",
                     "path": path,
-                    "position": pos,
+                    "position": position,
                     "paragraphs": 0,
                     "chars": 0,
-                    "first_chunk_id": chunk_id,
+                    "first_position": position,
                     "opening_line": "",
                 }
             )
@@ -493,8 +492,8 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
         elif kind == "paragraph":
             opening_paragraphs += 1
             opening_chars += char_count
-            if opening_first_chunk_id is None:
-                opening_first_chunk_id = chunk_id
+            if opening_first_position is None:
+                opening_first_position = position
             if not opening_line:
                 opening_line = _single_line(content)
 
@@ -507,7 +506,7 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
                 "position": -1,
                 "paragraphs": opening_paragraphs,
                 "chars": opening_chars,
-                "first_chunk_id": opening_first_chunk_id,
+                "first_position": opening_first_position,
                 "opening_line": opening_line,
             },
         )
@@ -529,20 +528,20 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
     if first_path:
         safe_section = first_path.replace('"', '\\"')
         first_section_cmd = f'gutenbit view {book_id} --section "{safe_section}" -n 20'
-    first_chunk_id = next(
+    first_position = next(
         (
-            int(sec["first_chunk_id"])
+            int(sec["first_position"])
             for sec in sections
-            if sec.get("first_chunk_id") is not None
+            if sec.get("first_position") is not None
         ),
         None,
     )
-    view_first_chunk_cmd = ""
-    view_first_chunk_around_cmd = ""
-    if first_chunk_id is not None:
-        view_first_chunk_cmd = f"gutenbit view {book_id} --chunk-id {first_chunk_id}"
-        view_first_chunk_around_cmd = (
-            f"gutenbit view {book_id} --chunk-id {first_chunk_id} --around 2"
+    view_first_position_cmd = ""
+    view_first_position_around_cmd = ""
+    if first_position is not None:
+        view_first_position_cmd = f"gutenbit view {book_id} --position {first_position}"
+        view_first_position_around_cmd = (
+            f"gutenbit view {book_id} --position {first_position} --around 2"
         )
 
     return {
@@ -575,8 +574,8 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
                 "paragraphs": int(sec["paragraphs"]),
                 "chars": int(sec["chars"]),
                 "read_time": _estimate_read_time(round(int(sec["chars"]) / 5)),
-                "first_chunk_id": (
-                    int(sec["first_chunk_id"]) if sec["first_chunk_id"] is not None else None
+                "first_position": (
+                    int(sec["first_position"]) if sec["first_position"] is not None else None
                 ),
                 "opening_line": str(sec["opening_line"]),
             }
@@ -585,8 +584,8 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
         "quick_actions": {
             "search": search_cmd,
             "view_first_section": first_section_cmd,
-            "view_first_chunk": view_first_chunk_cmd,
-            "view_first_chunk_around": view_first_chunk_around_cmd,
+            "view_first_position": view_first_position_cmd,
+            "view_first_position_around": view_first_position_around_cmd,
         },
     }
 
@@ -664,8 +663,8 @@ def _render_section_summary(db: Database, book_id: int, *, as_json: bool = False
         paras_values = [_format_int(int(sec["paragraphs"])) for sec in sections]
         char_values = [_format_int(int(sec["chars"])) for sec in sections]
         read_values = [str(sec["read_time"]) for sec in sections]
-        first_id_values = [
-            str(sec["first_chunk_id"]) if sec["first_chunk_id"] is not None else "-"
+        first_position_values = [
+            str(sec["first_position"]) if sec["first_position"] is not None else "-"
             for sec in sections
         ]
         opening_values = [str(sec["opening_line"]) or "-" for sec in sections]
@@ -675,19 +674,19 @@ def _render_section_summary(db: Database, book_id: int, *, as_json: bool = False
         paras_width = max(len("Paras"), max(len(v) for v in paras_values))
         chars_width = max(len("Chars"), max(len(v) for v in char_values))
         read_width = max(len("Read"), max(len(v) for v in read_values))
-        chunk_id_label = "Chunk ID"
-        first_id_width = max(len(chunk_id_label), max(len(v) for v in first_id_values))
+        position_label = "Position"
+        first_position_width = max(len(position_label), max(len(v) for v in first_position_values))
         opening_width = min(56, max(len("Opening"), max(len(v) for v in opening_values)))
 
         print(
             f" {'#':>{idx_width}}  {'Section':<{section_width}}  "
-            f"{'Paras':>{paras_width}}  {'Chars':>{chars_width}}  "
-            f"{'Read':>{read_width}}  {chunk_id_label:>{first_id_width}}  {'Opening':<{opening_width}}"
+            f"{position_label:>{first_position_width}}  {'Paras':>{paras_width}}  "
+            f"{'Chars':>{chars_width}}  {'Read':>{read_width}}  {'Opening':<{opening_width}}"
         )
         print(
             f" {'-' * idx_width}  {'-' * section_width}  "
-            f"{'-' * paras_width}  {'-' * chars_width}  {'-' * read_width}  "
-            f"{'-' * first_id_width}  {'-' * opening_width}"
+            f"{'-' * first_position_width}  {'-' * paras_width}  "
+            f"{'-' * chars_width}  {'-' * read_width}  {'-' * opening_width}"
         )
 
         for idx, sec in enumerate(sections, start=1):
@@ -698,25 +697,25 @@ def _render_section_summary(db: Database, book_id: int, *, as_json: bool = False
             paragraphs = _format_int(int(sec["paragraphs"]))
             chars = _format_int(int(sec["chars"]))
             read_time = str(sec["read_time"])
-            first_id = str(sec["first_chunk_id"]) if sec["first_chunk_id"] is not None else "-"
+            first_position = str(sec["first_position"]) if sec["first_position"] is not None else "-"
             opening = str(sec["opening_line"]) or "-"
             if len(opening) > opening_width:
                 keep = max(1, opening_width - 3)
                 opening = opening[:keep] + "..."
             print(
                 f" {idx:>{idx_width}}  {section_label:<{section_width}}  "
-                f"{paragraphs:>{paras_width}}  {chars:>{chars_width}}  "
-                f"{read_time:>{read_width}}  {first_id:>{first_id_width}}  {opening:<{opening_width}}"
+                f"{first_position:>{first_position_width}}  {paragraphs:>{paras_width}}  "
+                f"{chars:>{chars_width}}  {read_time:>{read_width}}  {opening:<{opening_width}}"
             )
 
     print("\nQuick actions")
     print(f"  {quick_actions['search']}")
     if quick_actions["view_first_section"]:
         print(f"  {quick_actions['view_first_section']}")
-    if quick_actions["view_first_chunk"]:
-        print(f"  {quick_actions['view_first_chunk']}")
-    if quick_actions["view_first_chunk_around"]:
-        print(f"  {quick_actions['view_first_chunk_around']}")
+    if quick_actions["view_first_position"]:
+        print(f"  {quick_actions['view_first_position']}")
+    if quick_actions["view_first_position_around"]:
+        print(f"  {quick_actions['view_first_position_around']}")
     return 0
 
 
@@ -729,7 +728,7 @@ def _print_chunk_blocks(
         section = _section_path(row.div1, row.div2, row.div3, row.div4)
         body = row.content if full else _preview(row.content, preview_chars)
         print(
-            f"\n{idx:>2}. chunk={row.chunk_id} pos={row.position}  "
+            f"\n{idx:>2}. position={row.position}  "
             f"kind={row.kind}  chars={row.char_count}"
         )
         print(f"    section={section}")
@@ -738,9 +737,9 @@ def _print_chunk_blocks(
 
 
 def _cmd_view(args: argparse.Namespace) -> int:
-    selected = int(args.all) + int(args.chunk_id is not None) + int(args.section is not None)
+    selected = int(args.all) + int(args.position is not None) + int(args.section is not None)
     if selected > 1:
-        print("Choose at most one selector: --all, --chunk-id, or --section.")
+        print("Choose at most one selector: --all, --position, or --section.")
         return 1
     if args.json and selected > 0:
         print("--json can only be used with the default summary view.")
@@ -765,16 +764,16 @@ def _cmd_view(args: argparse.Namespace) -> int:
             print(content)
             return 0
 
-        if args.chunk_id is not None:
-            rows = db.chunk_window(args.book_id, args.chunk_id, around=args.around)
+        if args.position is not None:
+            rows = db.chunk_window(args.book_id, args.position, around=args.around)
             if not rows:
-                print(f"No chunk found for id {args.chunk_id} in book {args.book_id}.")
+                print(f"No chunk found at position {args.position} in book {args.book_id}.")
                 return 1
             _print_chunk_blocks(
                 rows,
                 full=args.full,
                 preview_chars=preview_chars,
-                title=(f"book={args.book_id}  chunk_id={args.chunk_id}  around={args.around}"),
+                title=(f"book={args.book_id}  position={args.position}  around={args.around}"),
             )
             return 0
 

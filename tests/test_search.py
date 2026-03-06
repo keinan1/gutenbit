@@ -386,9 +386,9 @@ def test_view_default_shows_structure(tmp_path):
     assert "Paras" in out
     assert "Chars" in out
     assert "Read" in out
-    assert "Chunk ID" in out
+    assert "Position" in out
     assert "Opening" in out
-    assert "--chunk-id" in out
+    assert "--position" in out
 
 
 def test_view_default_json(tmp_path):
@@ -409,11 +409,11 @@ def test_view_default_json(tmp_path):
     assert payload["quick_actions"]["search"] == (
         "gutenbit search <query> --book-id 1 --kind paragraph"
     )
-    assert payload["quick_actions"]["view_first_chunk"].startswith(
-        "gutenbit view 1 --chunk-id "
+    assert payload["quick_actions"]["view_first_position"].startswith(
+        "gutenbit view 1 --position "
     )
-    assert payload["quick_actions"]["view_first_chunk_around"].startswith(
-        "gutenbit view 1 --chunk-id "
+    assert payload["quick_actions"]["view_first_position_around"].startswith(
+        "gutenbit view 1 --position "
     )
 
 
@@ -441,20 +441,20 @@ def test_view_all_and_missing_book(tmp_path):
     assert "No text found" in miss_out
 
 
-def test_view_chunk_id_with_neighbors(tmp_path):
+def test_view_position_with_neighbors(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     row = db._conn.execute(
-        "SELECT id FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position LIMIT 1",
+        "SELECT position FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position LIMIT 1",
         (1,),
     ).fetchone()
     assert row is not None
-    chunk_id = row["id"]
+    position = row["position"]
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--chunk-id", str(chunk_id), "--around", "1")
+    code, out, _err = _run_cli(db_path, "view", "1", "--position", str(position), "--around", "1")
     assert code == 0
-    assert f"chunk={chunk_id}" in out
+    assert f"position={position}" in out
     assert "section=CHAPTER 1" in out
 
 

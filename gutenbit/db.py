@@ -260,7 +260,7 @@ class Database:
         ]
 
     def chunk_by_id(self, book_id: int, chunk_id: int) -> ChunkRecord | None:
-        """Return one chunk by chunk id within a specific book."""
+        """Return one chunk by internal row id within a specific book."""
         row = self._conn.execute(
             "SELECT * FROM chunks WHERE book_id = ? AND id = ?",
             (book_id, chunk_id),
@@ -280,9 +280,30 @@ class Database:
             char_count=row["char_count"],
         )
 
-    def chunk_window(self, book_id: int, chunk_id: int, *, around: int = 0) -> list[ChunkRecord]:
-        """Return the selected chunk and N neighbors on each side."""
-        center = self.chunk_by_id(book_id, chunk_id)
+    def chunk_by_position(self, book_id: int, position: int) -> ChunkRecord | None:
+        """Return one chunk by structural position within a specific book."""
+        row = self._conn.execute(
+            "SELECT * FROM chunks WHERE book_id = ? AND position = ?",
+            (book_id, position),
+        ).fetchone()
+        if row is None:
+            return None
+        return ChunkRecord(
+            chunk_id=row["id"],
+            book_id=row["book_id"],
+            div1=row["div1"],
+            div2=row["div2"],
+            div3=row["div3"],
+            div4=row["div4"],
+            position=row["position"],
+            content=row["content"],
+            kind=row["kind"],
+            char_count=row["char_count"],
+        )
+
+    def chunk_window(self, book_id: int, position: int, *, around: int = 0) -> list[ChunkRecord]:
+        """Return the selected position and N neighboring chunks on each side."""
+        center = self.chunk_by_position(book_id, position)
         if center is None:
             return []
         lo = max(0, center.position - around)
