@@ -191,6 +191,10 @@ class Database:
         ).fetchone()
         return row["content"] if row else None
 
+    def has_text(self, book_id: int) -> bool:
+        """Return True when a book has already been downloaded and stored."""
+        return self._has_text(book_id)
+
     def chunks(
         self,
         book_id: int,

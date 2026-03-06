@@ -3,7 +3,7 @@
 import contextlib
 import io
 
-from gutenbit.catalog import BookRecord
+from gutenbit.catalog import BookRecord, Catalog
 from gutenbit.cli import main as cli_main
 from gutenbit.db import Database, SearchResult
 from gutenbit.html_chunker import chunk_html
@@ -130,7 +130,10 @@ def _run_cli(db_path, *args):
     out = io.StringIO()
     err = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = cli_main(["--db", str(db_path), *args])
+        try:
+            code = cli_main(["--db", str(db_path), *args])
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
     return code, out.getvalue(), err.getvalue()
 
 
@@ -439,7 +442,7 @@ def test_chunks_by_div_ignores_trailing_punctuation(tmp_path):
     db.close()
 
     assert len(rows) == 1
-    assert rows[0].div2 == "STAVE ONE."
+    assert rows[0].div1 == "STAVE ONE"
 
 
 def test_view_rejects_multiple_selectors(tmp_path):
@@ -450,3 +453,102 @@ def test_view_rejects_multiple_selectors(tmp_path):
     code, out, _err = _run_cli(db_path, "view", "1", "--all", "--div", "CHAPTER 1")
     assert code == 1
     assert "Choose at most one selector" in out
+
+
+def test_search_rejects_negative_limit(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "Ishmael", "-n", "-1")
+    assert code == 1
+    assert "--limit must be >= 0." in out
+
+
+def test_search_rejects_unknown_kind_choice(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, _out, err = _run_cli(db_path, "search", "Ishmael", "--kind", "typo_kind")
+    assert code == 2
+    assert "invalid choice" in err
+
+
+def test_catalog_rejects_non_positive_limit(tmp_path):
+    code, out, _err = _run_cli(tmp_path / "any.db", "catalog", "--author", "Dickens", "-n", "0")
+    assert code == 1
+    assert "--limit must be > 0." in out
+
+
+def test_catalog_output_collapses_embedded_newlines(tmp_path, monkeypatch):
+    record = BookRecord(
+        id=777,
+        title="Title Line One\nTitle Line Two",
+        authors="Author One\nAuthor Two",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda: Catalog([record])))
+
+    code, out, _err = _run_cli(tmp_path / "any.db", "catalog", "--author", "Author", "-n", "1")
+    assert code == 0
+    assert "Author One Author Two" in out
+    assert "Title Line One Title Line Two" in out
+    assert "Author One\nAuthor Two" not in out
+    assert "Title Line One\nTitle Line Two" not in out
+
+
+def test_books_output_collapses_embedded_newlines(tmp_path):
+    db = Database(tmp_path / "test.db")
+    weird_book = BookRecord(
+        id=99,
+        title="Book\nTitle",
+        authors="Writer\nName",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    html = _make_html("Book Title", "<h2><a id='c1'></a>CHAPTER 1</h2><p>Body.</p>")
+    db._store(weird_book, chunk_html(html))
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "books")
+    assert code == 0
+    assert "Writer Name" in out
+    assert "Book Title" in out
+    assert "Writer\nName" not in out
+    assert "Book\nTitle" not in out
+
+
+def test_ingest_reports_skip_before_downloading(tmp_path, monkeypatch):
+    record = BookRecord(
+        id=888,
+        title="Already There",
+        authors="Test Author",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda: Catalog([record])))
+    monkeypatch.setattr(Database, "has_text", lambda _self, _book_id: True)
+
+    def _ingest_should_not_run(_self, _books, *, delay=1.0):
+        raise AssertionError("ingest() should not run for already-downloaded books")
+
+    monkeypatch.setattr(Database, "ingest", _ingest_should_not_run)
+
+    code, out, _err = _run_cli(tmp_path / "skip.db", "ingest", "888", "--delay", "0")
+    assert code == 0
+    assert "skipping 888: Already There (already downloaded)" in out

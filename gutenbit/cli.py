@@ -21,6 +21,11 @@ def _preview(text: str, limit: int) -> str:
     return flat[:limit] + "…"
 
 
+def _single_line(text: str) -> str:
+    """Collapse all whitespace so tabular CLI output stays on one line."""
+    return " ".join(text.split())
+
+
 def _fts_phrase_query(query: str) -> str:
     """Wrap a raw query as an exact FTS5 phrase, escaping inner quotes."""
     escaped = query.replace('"', '""')
@@ -171,6 +176,7 @@ tip: use 'gutenbit view <id>' first to see a book's structure, then
     se.add_argument("--book-id", type=int, help="restrict to a single book by PG ID")
     se.add_argument(
         "--kind",
+        choices=CHUNK_KINDS,
         help="filter by chunk kind (front_matter|heading|paragraph|end_matter)",
     )
     se.add_argument(
@@ -245,6 +251,10 @@ division hierarchy:  div1 > div2 > div3 > div4  (compacted from shallowest level
 
 
 def _cmd_catalog(args: argparse.Namespace) -> int:
+    if args.limit <= 0:
+        print("--limit must be > 0.")
+        return 1
+
     print("Fetching catalog from Project Gutenberg…")
     catalog = Catalog.fetch()
     results = catalog.search(
@@ -258,7 +268,9 @@ def _cmd_catalog(args: argparse.Namespace) -> int:
         return 0
     shown = results[: args.limit]
     for b in shown:
-        print(f"  {b.id:>6}  {b.authors[:30]:<30s}  {b.title}")
+        authors = _single_line(b.authors)[:30]
+        title = _single_line(b.title)
+        print(f"  {b.id:>6}  {authors:<30s}  {title}")
     if len(results) > args.limit:
         print(f"  … and {len(results) - args.limit} more (use -n to show more)")
     return 0
@@ -282,7 +294,11 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
     with Database(args.db) as db:
         for book in books:
-            print(f"  ingesting {book.id}: {book.title}…")
+            title = _single_line(book.title)
+            if db.has_text(book.id):
+                print(f"  skipping {book.id}: {title} (already downloaded)")
+                continue
+            print(f"  ingesting {book.id}: {title}…")
             db.ingest([book], delay=args.delay)
     print(f"Done. Database: {Path(args.db).resolve()}")
     return 0
@@ -295,7 +311,9 @@ def _cmd_books(args: argparse.Namespace) -> int:
         print("No books stored yet. Use 'gutenbit ingest <id> ...' to add some.")
         return 0
     for b in books:
-        print(f"  {b.id:>6}  {b.authors[:30]:<30s}  {b.title}")
+        authors = _single_line(b.authors)[:30]
+        title = _single_line(b.title)
+        print(f"  {b.id:>6}  {authors:<30s}  {title}")
     print(f"\n{len(books)} book(s) stored in {args.db}")
     return 0
 
@@ -311,6 +329,10 @@ def _cmd_delete(args: argparse.Namespace) -> int:
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
+    if args.limit < 0:
+        print("--limit must be >= 0.")
+        return 1
+
     search_query = _fts_phrase_query(args.query) if args.phrase else args.query
     default_limit = 1 if args.mode in {"first", "last"} else 20
     limit = args.limit if args.limit > 0 else default_limit
@@ -487,9 +509,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.verbose:
-        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(levelname)s %(name)s: %(message)s",
+            stream=sys.stdout,
+        )
     else:
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        logging.basicConfig(level=logging.WARNING, format="%(message)s", stream=sys.stdout)
+
+    # Suppress verbose transport logs unless users explicitly inspect networking.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     if not args.command:
         parser.print_help()
