@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import json
 
 from gutenbit.catalog import BookRecord, Catalog
 from gutenbit.cli import main as cli_main
@@ -380,6 +381,36 @@ def test_view_default_shows_structure(tmp_path):
     assert "Moby Dick" in out
     assert "CHAPTER 1" in out
     assert "section(s)" in out
+
+
+def test_view_default_json(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--json")
+    assert code == 0
+
+    payload = json.loads(out)
+    assert payload["book"]["id"] == 1
+    assert payload["book"]["title"] == "Moby Dick"
+    assert payload["book"]["authors"] == "Melville, Herman"
+    assert payload["overview"]["sections_total"] == 2
+    assert payload["overview"]["chunk_counts"]["heading"] == 2
+    assert payload["sections"][0]["heading"] == "CHAPTER 1"
+    assert payload["quick_actions"]["search"] == (
+        "gutenbit search <query> --book-id 1 --kind paragraph"
+    )
+
+
+def test_view_json_rejects_selectors(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--json", "--all")
+    assert code == 1
+    assert "--json can only be used with the default summary view." in out
 
 
 def test_view_all_and_missing_book(tmp_path):

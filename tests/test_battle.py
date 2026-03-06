@@ -594,7 +594,7 @@ class TestCLICommands:
         result = _run_cli("view", "7370", db=db_path)
         assert result.returncode == 0
         assert "CHAPTER." in result.stdout
-        assert "19 section(s)" in result.stdout
+        assert "section(s)=19" in result.stdout
 
     def test_cli_view_all(self, db_path: str):
         result = _run_cli("view", "46", "--all", db=db_path)
