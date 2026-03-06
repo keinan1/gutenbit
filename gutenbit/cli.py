@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -30,6 +31,34 @@ def _fts_phrase_query(query: str) -> str:
     """Wrap a raw query as an exact FTS5 phrase, escaping inner quotes."""
     escaped = query.replace('"', '""')
     return f'"{escaped}"'
+
+
+def _format_int(value: int) -> str:
+    return f"{value:,}"
+
+
+def _split_semicolon_list(raw: str) -> list[str]:
+    return [_single_line(part) for part in raw.split(";") if part.strip()]
+
+
+def _summarize_semicolon_list(raw: str, *, max_items: int) -> str:
+    items = _split_semicolon_list(raw)
+    if not items:
+        return ""
+    if len(items) <= max_items:
+        return "; ".join(items)
+    shown = "; ".join(items[:max_items])
+    return f"{shown}; +{len(items) - max_items} more"
+
+
+def _estimate_read_time(words: int, *, wpm: int = 250) -> str:
+    if words <= 0:
+        return "n/a"
+    minutes = max(1, round(words / wpm))
+    hours, mins = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {mins}m"
+    return f"{mins}m"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -206,6 +235,7 @@ tip: use 'gutenbit view <id>' first to see a book's structure, then
         epilog="""\
 examples:
   gutenbit view 2600                                 # structure summary
+  gutenbit view 2600 --json                          # structure summary as JSON
   gutenbit view 2600 --all                           # full reconstructed text
   gutenbit view 2600 --chunk-id 12345                # one exact chunk
   gutenbit view 2600 --chunk-id 12345 --around 2     # chunk + neighbors
@@ -219,6 +249,11 @@ chunk kinds:  front_matter, heading, paragraph, end_matter
 division hierarchy:  div1 > div2 > div3 > div4  (compacted from shallowest level)""",
     )
     vw.add_argument("book_id", type=int, help="Project Gutenberg book ID")
+    vw.add_argument(
+        "--json",
+        action="store_true",
+        help="print default summary as JSON (only without selectors)",
+    )
     vw.add_argument("--all", action="store_true", help="print full reconstructed text")
     vw.add_argument("--chunk-id", type=int, help="retrieve one exact chunk by chunk id")
     vw.add_argument(
@@ -365,32 +400,36 @@ def _cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
-def _render_section_summary(db: Database, book_id: int) -> int:
+def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | None:
     all_chunks = db.chunks(book_id)
     if not all_chunks:
-        print(f"No chunks found for book {book_id}.")
-        return 1
+        return None
 
-    stored_books = db.books()
-    title = ""
-    for b in stored_books:
-        if b.id == book_id:
-            title = b.title
-            break
-
-    if title:
-        print(f"# {title} (id={book_id})\n")
+    book = db.book(book_id)
+    title = _single_line(book.title) if book else f"Book {book_id}"
+    authors = _single_line(book.authors) if book and book.authors else ""
+    language = book.language if book else ""
+    issued = book.issued if book else ""
+    book_type = book.type if book else ""
+    locc = _single_line(book.locc) if book and book.locc else ""
+    subjects = _split_semicolon_list(book.subjects) if book else []
+    bookshelves = _split_semicolon_list(book.bookshelves) if book else []
 
     sections: list[dict[str, str | int]] = []
+    kind_counts = {kind: 0 for kind in CHUNK_KINDS}
+    total_chars = 0
+    opening_paragraphs = 0
+    opening_chars = 0
     for pos, div1, div2, div3, div4, content, kind, char_count in all_chunks:
+        kind_counts[kind] = kind_counts.get(kind, 0) + 1
+        total_chars += char_count
+
         if kind == "heading":
+            path = " / ".join(d for d in [div1, div2, div3, div4] if d)
             sections.append(
                 {
-                    "div1": div1,
-                    "div2": div2,
-                    "div3": div3,
-                    "div4": div4,
-                    "heading": content,
+                    "heading": _single_line(content) or "(untitled section)",
+                    "path": path,
                     "position": pos,
                     "paragraphs": 0,
                     "chars": 0,
@@ -399,27 +438,165 @@ def _render_section_summary(db: Database, book_id: int) -> int:
         elif kind == "paragraph" and sections:
             sections[-1]["paragraphs"] = int(sections[-1]["paragraphs"]) + 1
             sections[-1]["chars"] = int(sections[-1]["chars"]) + char_count
+        elif kind == "paragraph":
+            opening_paragraphs += 1
+            opening_chars += char_count
 
+    if opening_paragraphs:
+        sections.insert(
+            0,
+            {
+                "heading": "(unsectioned opening)",
+                "path": "",
+                "position": -1,
+                "paragraphs": opening_paragraphs,
+                "chars": opening_chars,
+            },
+        )
+
+    total_chunks = len(all_chunks)
+    total_sections = len(sections)
+    total_paragraphs = kind_counts.get("paragraph", 0)
+    est_words = round(total_chars / 5) if total_chars else 0
+    read_time = _estimate_read_time(est_words)
+
+    search_cmd = f"gutenbit search <query> --book-id {book_id} --kind paragraph"
+    first_path = ""
     for sec in sections:
-        div1 = sec["div1"]
-        div2 = sec["div2"]
-        div3 = sec["div3"]
-        div4 = sec["div4"]
-        if div4:
-            indent = 6
-        elif div3:
-            indent = 4
-        elif div2:
-            indent = 2
-        else:
-            indent = 0
-        divs = "/".join(str(d) for d in [div1, div2, div3, div4] if d)
-        stats = f"({sec['paragraphs']} paragraphs, {sec['chars']} chars)"
-        print(f"{' ' * indent}{sec['heading']}")
-        print(f"{' ' * indent}  div={divs}  {stats}")
+        path = str(sec["path"])
+        if path:
+            first_path = path
+            break
+    first_section_cmd = ""
+    if first_path:
+        safe_div = first_path.replace('"', '\\"')
+        first_section_cmd = f'gutenbit view {book_id} --div "{safe_div}" -n 20'
 
-    print(f"\n{len(sections)} section(s)")
-    print(f"\nFilter searches with: gutenbit search <query> --book-id {book_id} --kind paragraph")
+    return {
+        "book": {
+            "id": book_id,
+            "title": title,
+            "authors": authors,
+            "language": language,
+            "issued": issued,
+            "type": book_type,
+            "locc": locc,
+            "subjects": subjects,
+            "bookshelves": bookshelves,
+        },
+        "overview": {
+            "chunks_total": total_chunks,
+            "chunk_counts": kind_counts,
+            "sections_total": total_sections,
+            "paragraphs_total": total_paragraphs,
+            "chars_total": total_chars,
+            "est_words": est_words,
+            "est_read_time": read_time,
+        },
+        "sections": [
+            {
+                "index": idx,
+                "heading": str(sec["heading"]),
+                "path": str(sec["path"]),
+                "position": int(sec["position"]),
+                "paragraphs": int(sec["paragraphs"]),
+                "chars": int(sec["chars"]),
+            }
+            for idx, sec in enumerate(sections, start=1)
+        ],
+        "quick_actions": {
+            "search": search_cmd,
+            "view_first_section": first_section_cmd,
+        },
+    }
+
+
+def _render_section_summary(db: Database, book_id: int, *, as_json: bool = False) -> int:
+    summary = _build_section_summary(db, book_id)
+    if summary is None:
+        print(f"No chunks found for book {book_id}.")
+        return 1
+    if as_json:
+        print(json.dumps(summary, indent=2))
+        return 0
+
+    book = summary["book"]
+    overview = summary["overview"]
+    sections = summary["sections"]
+    quick_actions = summary["quick_actions"]
+
+    assert isinstance(book, dict)
+    assert isinstance(overview, dict)
+    assert isinstance(sections, list)
+    assert isinstance(quick_actions, dict)
+
+    title = str(book["title"])
+    print(f"# {title} (id={book_id})")
+
+    authors = str(book["authors"])
+    if authors:
+        print(f"by {authors}")
+
+    meta: list[str] = []
+    if book["language"]:
+        meta.append(f"language={book['language']}")
+    if book["issued"]:
+        meta.append(f"issued={book['issued']}")
+    if book["type"]:
+        meta.append(f"type={book['type']}")
+    if book["locc"]:
+        meta.append(f"locc={book['locc']}")
+    if meta:
+        print(f"meta: {'  '.join(meta)}")
+
+    subjects = _summarize_semicolon_list(";".join(book["subjects"]), max_items=5)
+    if subjects:
+        print(f"subjects: {subjects}")
+    shelves = _summarize_semicolon_list(";".join(book["bookshelves"]), max_items=4)
+    if shelves:
+        print(f"shelves: {shelves}")
+
+    print("\nOverview")
+    print(
+        "  chunks="
+        f"{_format_int(int(overview['chunks_total']))} ("
+        f"front_matter={_format_int(int(overview['chunk_counts']['front_matter']))}, "
+        f"heading={_format_int(int(overview['chunk_counts']['heading']))}, "
+        f"paragraph={_format_int(int(overview['chunk_counts']['paragraph']))}, "
+        f"end_matter={_format_int(int(overview['chunk_counts']['end_matter']))})"
+    )
+    print(
+        "  "
+        f"section(s)={_format_int(int(overview['sections_total']))}  "
+        f"paragraphs={_format_int(int(overview['paragraphs_total']))}  "
+        f"chars={_format_int(int(overview['chars_total']))}"
+    )
+    print(
+        f"  est_words~{_format_int(int(overview['est_words']))}  "
+        f"est_read={overview['est_read_time']}"
+    )
+
+    print("\nContents")
+    if not sections:
+        print("  (no headings found)")
+    else:
+        name_width = min(54, max(len(str(sec["heading"])) for sec in sections))
+        for idx, sec in enumerate(sections, start=1):
+            heading = str(sec["heading"])
+            if len(heading) > name_width:
+                heading = heading[: name_width - 1] + "…"
+            paragraphs = _format_int(int(sec["paragraphs"]))
+            chars = _format_int(int(sec["chars"]))
+            print(f"{idx:>2}. {heading:<{name_width}}  {paragraphs:>7} paras  {chars:>10} chars")
+
+            path = str(sec["path"])
+            if "/" in path:
+                print(f"    path={path}")
+
+    print("\nQuick actions")
+    print(f"  {quick_actions['search']}")
+    if quick_actions["view_first_section"]:
+        print(f"  {quick_actions['view_first_section']}")
     return 0
 
 
@@ -444,6 +621,9 @@ def _cmd_view(args: argparse.Namespace) -> int:
     selected = int(args.all) + int(args.chunk_id is not None) + int(args.div is not None)
     if selected > 1:
         print("Choose at most one selector: --all, --chunk-id, or --div.")
+        return 1
+    if args.json and selected > 0:
+        print("--json can only be used with the default summary view.")
         return 1
     if args.around < 0:
         print("--around must be >= 0.")
@@ -491,7 +671,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
             )
             return 0
 
-        return _render_section_summary(db, args.book_id)
+        return _render_section_summary(db, args.book_id, as_json=args.json)
 
 
 _COMMANDS = {

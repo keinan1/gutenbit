@@ -184,6 +184,11 @@ class Database:
         rows = self._conn.execute("SELECT * FROM books ORDER BY id").fetchall()
         return [BookRecord(**row) for row in rows]
 
+    def book(self, book_id: int) -> BookRecord | None:
+        """Return one stored book by Project Gutenberg id."""
+        row = self._conn.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
+        return BookRecord(**row) if row else None
+
     def text(self, book_id: int) -> str | None:
         """Return the clean text for a book, or None if not found."""
         row = self._conn.execute(
