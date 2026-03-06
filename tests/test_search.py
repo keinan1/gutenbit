@@ -458,7 +458,8 @@ def test_view_position_with_neighbors(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     row = db._conn.execute(
-        "SELECT position FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position LIMIT 1",
+        "SELECT position FROM chunks WHERE book_id = ? AND kind = 'paragraph'"
+        " ORDER BY position LIMIT 1",
         (1,),
     ).fetchone()
     assert row is not None

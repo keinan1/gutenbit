@@ -106,9 +106,7 @@ def apply_catalog_policy(
         return canonical, {book_id: book_id for book_id in unique_by_id}
 
     if policy.dedupe_strategy != "lowest_id_per_work":
-        raise ValueError(
-            "dedupe_strategy must be one of: 'lowest_id_per_work', 'none'"
-        )
+        raise ValueError("dedupe_strategy must be one of: 'lowest_id_per_work', 'none'")
 
     canonical_by_work: dict[tuple[str, str], BookRecord] = {}
     canonical_id_by_id: dict[int, int] = {}
@@ -129,9 +127,7 @@ def apply_catalog_policy(
         canonical_id_by_id[record.id] = canonical.id
         canonical_records_by_id.setdefault(canonical.id, canonical)
 
-    canonical = [
-        canonical_records_by_id[book_id] for book_id in sorted(canonical_records_by_id)
-    ]
+    canonical = [canonical_records_by_id[book_id] for book_id in sorted(canonical_records_by_id)]
     return canonical, canonical_id_by_id
 
 
