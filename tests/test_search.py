@@ -382,6 +382,13 @@ def test_view_default_shows_structure(tmp_path):
     assert "Moby Dick" in out
     assert "CHAPTER 1" in out
     assert "section(s)" in out
+    assert "#  Section" in out
+    assert "Paras" in out
+    assert "Chars" in out
+    assert "Read" in out
+    assert "Position" in out
+    assert "Opening" in out
+    assert "--position" in out
 
 
 def test_view_default_json(tmp_path):
@@ -401,6 +408,12 @@ def test_view_default_json(tmp_path):
     assert payload["sections"][0]["heading"] == "CHAPTER 1"
     assert payload["quick_actions"]["search"] == (
         "gutenbit search <query> --book-id 1 --kind paragraph"
+    )
+    assert payload["quick_actions"]["view_first_position"].startswith(
+        "gutenbit view 1 --position "
+    )
+    assert payload["quick_actions"]["view_first_position_around"].startswith(
+        "gutenbit view 1 --position "
     )
 
 
@@ -428,24 +441,24 @@ def test_view_all_and_missing_book(tmp_path):
     assert "No text found" in miss_out
 
 
-def test_view_chunk_id_with_neighbors(tmp_path):
+def test_view_position_with_neighbors(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     row = db._conn.execute(
-        "SELECT id FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position LIMIT 1",
+        "SELECT position FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position LIMIT 1",
         (1,),
     ).fetchone()
     assert row is not None
-    chunk_id = row["id"]
+    position = row["position"]
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--chunk-id", str(chunk_id), "--around", "1")
+    code, out, _err = _run_cli(db_path, "view", "1", "--position", str(position), "--around", "1")
     assert code == 0
-    assert f"chunk={chunk_id}" in out
-    assert "path=CHAPTER 1" in out
+    assert f"position={position}" in out
+    assert "section=CHAPTER 1" in out
 
 
-def test_view_div_with_filters_and_limit(tmp_path):
+def test_view_section_with_filters_and_limit(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
@@ -454,7 +467,7 @@ def test_view_div_with_filters_and_limit(tmp_path):
         db_path,
         "view",
         "1",
-        "--div",
+        "--section",
         "CHAPTER 1",
         "--kind",
         "paragraph",
@@ -462,9 +475,29 @@ def test_view_div_with_filters_and_limit(tmp_path):
         "1",
     )
     assert code == 0
-    assert "div='CHAPTER 1'" in out
+    assert "section='CHAPTER 1'" in out
     assert "kind=paragraph" in out
     assert "1 chunk(s)" in out
+
+
+def test_view_section_miss_shows_examples(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(
+        db_path,
+        "view",
+        "1",
+        "--section",
+        "BOOK THIRTEEN: 1812 / CHAPTER XII",
+    )
+    assert code == 1
+    assert "No chunks found for book 1 under section 'BOOK THIRTEEN: 1812 / CHAPTER XII'." in out
+    assert "Available sections include:" in out
+    assert "CHAPTER 1" in out
+    assert "CHAPTER 2" in out
+    assert "Tip: run `gutenbit view 1` to list all sections." in out
 
 
 def test_chunks_by_div_ignores_trailing_punctuation(tmp_path):
@@ -482,7 +515,7 @@ def test_view_rejects_multiple_selectors(tmp_path):
     db_path = db.path
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--all", "--div", "CHAPTER 1")
+    code, out, _err = _run_cli(db_path, "view", "1", "--all", "--section", "CHAPTER 1")
     assert code == 1
     assert "Choose at most one selector" in out
 
