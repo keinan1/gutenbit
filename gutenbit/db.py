@@ -224,6 +224,43 @@ class Database:
         """Return True when a book has already been downloaded and stored."""
         return self._has_text(book_id)
 
+    def chunk_records(
+        self,
+        book_id: int,
+        *,
+        kinds: list[str] | None = None,
+    ) -> list[ChunkRecord]:
+        """Return all chunks for a book as ChunkRecord objects."""
+        fields = "id, book_id, div1, div2, div3, div4, position, content, kind, char_count"
+        if kinds:
+            placeholders = ",".join("?" * len(kinds))
+            sql = (
+                f"SELECT {fields} FROM chunks"
+                f" WHERE book_id = ? AND kind IN ({placeholders})"
+                f" ORDER BY position"
+            )
+            rows = self._conn.execute(sql, [book_id, *kinds]).fetchall()
+        else:
+            rows = self._conn.execute(
+                f"SELECT {fields} FROM chunks WHERE book_id = ? ORDER BY position",
+                (book_id,),
+            ).fetchall()
+        return [
+            ChunkRecord(
+                chunk_id=r["id"],
+                book_id=r["book_id"],
+                div1=r["div1"],
+                div2=r["div2"],
+                div3=r["div3"],
+                div4=r["div4"],
+                position=r["position"],
+                content=r["content"],
+                kind=r["kind"],
+                char_count=r["char_count"],
+            )
+            for r in rows
+        ]
+
     def chunks(
         self,
         book_id: int,

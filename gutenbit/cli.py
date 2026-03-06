@@ -83,7 +83,11 @@ def _estimate_read_time(words: int, *, wpm: int = 250) -> str:
 
 
 def _print_key_value_table(
-    rows: list[tuple[str, str]], *, show_header: bool = True, key_header: str = "Field", value_header: str = "Value"
+    rows: list[tuple[str, str]],
+    *,
+    show_header: bool = True,
+    key_header: str = "Field",
+    value_header: str = "Value",
 ) -> None:
     if not rows:
         return
@@ -120,6 +124,14 @@ def _print_table(headers: list[str], rows: list[list[str]], *, right_align: set[
 
 def _print_block_header(title: str) -> None:
     print(f"\n[{title.upper()}]")
+
+
+def _add_global_args(parser: argparse.ArgumentParser) -> None:
+    """Add --db and -v to a subparser so they work after the subcommand too."""
+    parser.add_argument("--db", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -165,6 +177,7 @@ all filters use case-insensitive substring matching (AND logic).""",
     cat.add_argument("--language", default="", help="filter by language code, e.g. 'en'")
     cat.add_argument("--subject", default="", help="filter by subject (substring match)")
     cat.add_argument("-n", "--limit", type=int, default=20, help="max results (default: 20)")
+    _add_global_args(cat)
 
     # --- ingest ---
     ing = sub.add_parser(
@@ -189,27 +202,30 @@ examples:
         default=1.0,
         help="seconds between downloads (default: 1.0)",
     )
+    _add_global_args(ing)
 
     # --- delete ---
     de = sub.add_parser(
         "delete",
         formatter_class=fmt,
-        help="delete a stored book by PG id",
+        help="delete stored books by PG id",
         description=(
-            "Delete a previously ingested book from the SQLite database, including "
-            "its reconstructed text and all chunks."
+            "Delete previously ingested books from the SQLite database, including "
+            "their reconstructed text and all chunks."
         ),
         epilog="""\
 examples:
   gutenbit delete 46
-  gutenbit --db my.db delete 2600
+  gutenbit delete 46 730 967
+  gutenbit delete 2600 --db my.db
 
-if the book ID is not present, the command returns exit code 1.""",
+if a book ID is not present, a warning is printed and exit code is 1.""",
     )
-    de.add_argument("book_id", type=int, help="Project Gutenberg book ID")
+    de.add_argument("book_ids", nargs="+", type=int, help="Project Gutenberg book IDs")
+    _add_global_args(de)
 
     # --- books ---
-    sub.add_parser(
+    bk = sub.add_parser(
         "books",
         formatter_class=fmt,
         help="list books stored in the database",
@@ -217,10 +233,11 @@ if the book ID is not present, the command returns exit code 1.""",
         epilog="""\
 example:
   gutenbit books
-  gutenbit --db my.db books
+  gutenbit books --db my.db
 
 output columns:  ID  AUTHORS  TITLE""",
     )
+    _add_global_args(bk)
 
     # --- search ---
     se = sub.add_parser(
@@ -240,11 +257,12 @@ examples:
   gutenbit search "Levin" --book-id 1399 --mode last        # last occurrence
   gutenbit search "may it be" --phrase --book-id 2554 -n 20 # exact phrase
   gutenbit search "freedom" --kind paragraph -n 5           # filtered top hits
+  gutenbit search "ghost" --full -n 3                       # full chunk text
 
 output fields:
   rank, book_id, position, title
   section, score, kind, char_count
-  preview text
+  preview text (or full text with --full)
 
 tip: use 'gutenbit view <id>' first to see a book's structure, then
      narrow searches with --book-id and --kind.""",
@@ -277,11 +295,15 @@ tip: use 'gutenbit view <id>' first to see a book's structure, then
         help="max results (default: ranked=20, first/last=1)",
     )
     se.add_argument(
+        "--full", action="store_true", help="print full chunk text instead of previews"
+    )
+    se.add_argument(
         "--preview-chars",
         type=int,
         default=140,
         help="preview length per result (default: 140)",
     )
+    _add_global_args(se)
 
     # --- view ---
     vw = sub.add_parser(
@@ -343,6 +365,7 @@ section hierarchy:  level1 > level2 > level3 > level4  (compacted from shallowes
         default=140,
         help="preview length per chunk when not using --full (default: 140)",
     )
+    _add_global_args(vw)
 
     return p
 
@@ -370,15 +393,19 @@ def _cmd_catalog(args: argparse.Namespace) -> int:
         return 0
     shown = results[: args.limit]
     for b in shown:
-        authors = _single_line(b.authors)[:30]
+        authors = _summarize_semicolon_list(b.authors, max_items=2)[:40]
         title = _single_line(b.title)
-        print(f"  {b.id:>6}  {authors:<30s}  {title}")
+        print(f"  {b.id:>6}  {authors:<40s}  {title}")
     if len(results) > args.limit:
         print(f"  … and {len(results) - args.limit} more (use -n to show more)")
     return 0
 
 
 def _cmd_ingest(args: argparse.Namespace) -> int:
+    if args.delay < 0:
+        print("--delay must be >= 0.")
+        return 1
+
     print("Fetching catalog…")
     catalog = Catalog.fetch()
     selected_by_id = {}
@@ -420,21 +447,24 @@ def _cmd_books(args: argparse.Namespace) -> int:
         print("No books stored yet. Use 'gutenbit ingest <id> ...' to add some.")
         return 0
     for b in books:
-        authors = _single_line(b.authors)[:30]
+        authors = _summarize_semicolon_list(b.authors, max_items=2)[:40]
         title = _single_line(b.title)
-        print(f"  {b.id:>6}  {authors:<30s}  {title}")
+        print(f"  {b.id:>6}  {authors:<40s}  {title}")
     print(f"\n{len(books)} book(s) stored in {args.db}")
     return 0
 
 
 def _cmd_delete(args: argparse.Namespace) -> int:
+    any_missing = False
     with Database(args.db) as db:
-        deleted = db.delete_book(args.book_id)
-    if not deleted:
-        print(f"No book found for id {args.book_id}.")
-        return 1
-    print(f"Deleted book {args.book_id} from {args.db}.")
-    return 0
+        for book_id in args.book_ids:
+            deleted = db.delete_book(book_id)
+            if not deleted:
+                print(f"No book found for id {book_id}.")
+                any_missing = True
+            else:
+                print(f"Deleted book {book_id} from {args.db}.")
+    return 1 if any_missing else 0
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
@@ -442,10 +472,15 @@ def _cmd_search(args: argparse.Namespace) -> int:
         print("--limit must be >= 0.")
         return 1
 
-    search_query = _fts_phrase_query(args.query) if args.phrase else args.query
+    query_text = args.query.strip()
+    if not query_text:
+        print("Search query must not be empty.")
+        return 1
+
+    search_query = _fts_phrase_query(query_text) if args.phrase else query_text
     default_limit = 1 if args.mode in {"first", "last"} else 20
     limit = args.limit if args.limit > 0 else default_limit
-    preview_chars = args.preview_chars if args.preview_chars > 0 else 140
+    preview_chars = max(1, args.preview_chars) if args.preview_chars > 0 else 140
 
     with Database(args.db) as db:
         results = db.search(
@@ -464,23 +499,19 @@ def _cmd_search(args: argparse.Namespace) -> int:
     print(f"query={args.query!r}  mode={args.mode}  shown={len(results)}")
     for idx, r in enumerate(results, start=1):
         section = _section_path(r.div1, r.div2, r.div3, r.div4)
-        preview = _preview(r.content, preview_chars)
+        body = r.content if args.full else _preview(r.content, preview_chars)
         print(f"\n{idx:>2}. book={r.book_id} position={r.position}  title={r.title}")
         print(f"    section={section}")
         print(f"    score={r.score:.2f}  kind={r.kind}  chars={r.char_count}")
-        print(f"    {preview}")
+        print(f"    {body}")
         print()
     print(f"{len(results)} result(s)")
     return 0
 
 
 def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | None:
-    rows = db._conn.execute(
-        "SELECT position, div1, div2, div3, div4, content, kind, char_count "
-        "FROM chunks WHERE book_id = ? ORDER BY position",
-        (book_id,),
-    ).fetchall()
-    if not rows:
+    chunk_records = db.chunk_records(book_id)
+    if not chunk_records:
         return None
 
     book = db.book(book_id)
@@ -500,43 +531,37 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
     opening_chars = 0
     opening_first_position: int | None = None
     opening_line = ""
-    for row in rows:
-        position = int(row["position"])
-        div1 = str(row["div1"])
-        div2 = str(row["div2"])
-        div3 = str(row["div3"])
-        div4 = str(row["div4"])
-        content = str(row["content"])
-        kind = str(row["kind"])
-        char_count = int(row["char_count"])
-        kind_counts[kind] = kind_counts.get(kind, 0) + 1
-        total_chars += char_count
+    for rec in chunk_records:
+        kind_counts[rec.kind] = kind_counts.get(rec.kind, 0) + 1
+        total_chars += rec.char_count
 
-        if kind == "heading":
-            path = " / ".join(d for d in [div1, div2, div3, div4] if d)
+        if rec.kind == "heading":
+            path = _section_path(rec.div1, rec.div2, rec.div3, rec.div4)
+            if path == "(root)":
+                path = ""
             sections.append(
                 {
-                    "heading": _single_line(content) or "(untitled section)",
+                    "heading": _single_line(rec.content) or "(untitled section)",
                     "path": path,
-                    "position": position,
+                    "position": rec.position,
                     "paragraphs": 0,
                     "chars": 0,
-                    "first_position": position,
+                    "first_position": rec.position,
                     "opening_line": "",
                 }
             )
-        elif kind == "paragraph" and sections:
+        elif rec.kind == "paragraph" and sections:
             sections[-1]["paragraphs"] = int(sections[-1]["paragraphs"]) + 1
-            sections[-1]["chars"] = int(sections[-1]["chars"]) + char_count
+            sections[-1]["chars"] = int(sections[-1]["chars"]) + rec.char_count
             if not sections[-1]["opening_line"]:
-                sections[-1]["opening_line"] = _single_line(content)
-        elif kind == "paragraph":
+                sections[-1]["opening_line"] = _single_line(rec.content)
+        elif rec.kind == "paragraph":
             opening_paragraphs += 1
-            opening_chars += char_count
+            opening_chars += rec.char_count
             if opening_first_position is None:
-                opening_first_position = position
+                opening_first_position = rec.position
             if not opening_line:
-                opening_line = _single_line(content)
+                opening_line = _single_line(rec.content)
 
     if opening_paragraphs:
         sections.insert(
@@ -552,7 +577,7 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
             },
         )
 
-    total_chunks = len(rows)
+    total_chunks = len(chunk_records)
     total_sections = len(sections)
     total_paragraphs = kind_counts.get("paragraph", 0)
     est_words = round(total_chars / 5) if total_chars else 0
@@ -570,11 +595,7 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
         safe_section = first_path.replace('"', '\\"')
         first_section_cmd = f'gutenbit view {book_id} --section "{safe_section}" -n 20'
     first_position = next(
-        (
-            int(sec["first_position"])
-            for sec in sections
-            if sec.get("first_position") is not None
-        ),
+        (int(sec["first_position"]) for sec in sections if sec.get("first_position") is not None),
         None,
     )
     view_first_position_cmd = ""
@@ -788,10 +809,7 @@ def _print_chunk_blocks(
     for idx, row in enumerate(rows, start=1):
         section = _section_path(row.div1, row.div2, row.div3, row.div4)
         body = row.content if full else _preview(row.content, preview_chars)
-        print(
-            f"\n{idx:>2}. position={row.position}  "
-            f"kind={row.kind}  chars={row.char_count}"
-        )
+        print(f"\n{idx:>2}. position={row.position}  kind={row.kind}  chars={row.char_count}")
         print(f"    section={section}")
         print(f"    {body}")
     print(f"\n{len(rows)} chunk(s)")
@@ -814,8 +832,14 @@ def _cmd_view(args: argparse.Namespace) -> int:
     if args.kind and args.section is None:
         print("--kind can only be used with --section.")
         return 1
+    if args.around > 0 and args.position is None:
+        print("--around can only be used with --position.")
+        return 1
+    if args.full and selected == 0 and not args.json:
+        print("--full requires a selector: --all, --position, or --section.")
+        return 1
 
-    preview_chars = args.preview_chars if args.preview_chars > 0 else 140
+    preview_chars = max(1, args.preview_chars) if args.preview_chars > 0 else 140
     with Database(args.db) as db:
         if args.all:
             content = db.text(args.book_id)
