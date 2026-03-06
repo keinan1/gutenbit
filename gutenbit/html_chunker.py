@@ -195,10 +195,11 @@ def _extract_heading_text(heading_el: Tag) -> str:
 
     root = heading_copy.find(["h1", "h2", "h3", "h4", "h5", "h6"]) or heading_copy
 
-    # Try direct text nodes first
+    # Try direct text nodes first (only accept if it has real words,
+    # not just stray punctuation between <span> elements).
     direct_text = "".join(child for child in root.children if isinstance(child, str))
     cleaned = " ".join(direct_text.split()).strip()
-    if cleaned:
+    if cleaned and re.search(r"[A-Za-z0-9]", cleaned):
         return cleaned
 
     # Try img alt text (illustrated editions)
