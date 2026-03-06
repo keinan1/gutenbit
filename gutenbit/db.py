@@ -7,6 +7,7 @@ import sqlite3
 import time
 from dataclasses import astuple, dataclass
 from pathlib import Path
+from typing import Literal
 
 from gutenbit.catalog import BookRecord
 from gutenbit.download import download_html
@@ -214,6 +215,7 @@ class Database:
         subject: str | None = None,
         book_id: int | None = None,
         kind: str | None = None,
+        mode: Literal["ranked", "first", "last"] = "ranked",
         limit: int = 20,
     ) -> list[SearchResult]:
         """Search chunks via FTS5 with BM25 ranking."""
@@ -237,7 +239,16 @@ class Database:
             sql += " AND c.kind = ?"
             params.append(kind)
 
-        sql += " ORDER BY rank LIMIT ?"
+        if mode == "ranked":
+            sql += " ORDER BY rank, c.book_id, c.position"
+        elif mode == "first":
+            sql += " ORDER BY c.book_id, c.position, rank"
+        elif mode == "last":
+            sql += " ORDER BY c.book_id DESC, c.position DESC, rank"
+        else:
+            raise ValueError("mode must be one of: ranked, first, last")
+
+        sql += " LIMIT ?"
         params.append(limit)
 
         rows = self._conn.execute(sql, params).fetchall()
