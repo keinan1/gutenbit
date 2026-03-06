@@ -26,7 +26,12 @@ Each `<p>` element becomes its own chunk — no accumulation or merging. This
 preserves the exact paragraph structure of the original HTML.
 
 Hierarchy is determined by bold (`<b>`) tags in TOC links (broad divisions like
-BOOK/PART) and keyword-based classification as fallback.
+BOOK/PART) and keyword-based classification as fallback. Levels are compacted
+so the shallowest heading level always fills div1 first — a chapter-only book
+has chapters in div1, while a book with BOOK + CHAPTER uses div1/div2.
+
+Heading text has trailing punctuation (`. , ; : ] )`) and whitespace stripped
+for clean display.
 
 Chunk kinds: `"front_matter"`, `"heading"`, `"paragraph"`, `"end_matter"`.
 

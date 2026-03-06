@@ -211,10 +211,10 @@ class TestChristmasCarol:
         for label in ["ONE", "TWO", "THREE", "FOUR", "FIVE"]:
             assert any(label in s for s in stave_texts), f"Missing STAVE {label}"
 
-    def test_staves_as_div2(self, chunks: list[Chunk]):
+    def test_staves_as_div1(self, chunks: list[Chunk]):
         headings = _headings(chunks)
         for h in headings:
-            assert h.div2.startswith("STAVE"), f"Expected STAVE in div2, got {h.div2!r}"
+            assert h.div1.startswith("STAVE"), f"Expected STAVE in div1, got {h.div1!r}"
 
     def test_paragraphs_have_content(self, chunks: list[Chunk]):
         paragraphs = [c for c in chunks if c.kind == "paragraph"]
@@ -312,11 +312,11 @@ class TestLockeSecondTreatise:
         chapter_headings = [h for h in headings if h.content.startswith("CHAPTER.")]
         assert len(chapter_headings) >= 15
 
-    def test_chapters_as_div2(self, chunks: list[Chunk]):
+    def test_chapters_as_div1(self, chunks: list[Chunk]):
         headings = _headings(chunks)
-        chapter_headings = [h for h in headings if h.content.startswith("CHAPTER.")]
+        chapter_headings = [h for h in headings if h.content.startswith("CHAPTER")]
         for h in chapter_headings:
-            assert h.div2.startswith("CHAPTER."), f"Expected div2 to be CHAPTER, got {h.div2!r}"
+            assert h.div1.startswith("CHAPTER"), f"Expected div1 to be CHAPTER, got {h.div1!r}"
 
 
 class TestSherlockHolmes:
@@ -341,10 +341,10 @@ class TestSherlockHolmes:
         assert any("SPECKLED BAND" in t.upper() for t in titles)
         assert any("COPPER BEECHES" in t.upper() for t in titles)
 
-    def test_stories_as_div2(self, chunks: list[Chunk]):
+    def test_stories_as_div1(self, chunks: list[Chunk]):
         headings = _headings(chunks)
         for h in headings:
-            assert h.div2, f"Expected div2 for story heading {h.content!r}"
+            assert h.div1, f"Expected div1 for story heading {h.content!r}"
 
     def test_has_front_matter(self, chunks: list[Chunk]):
         kinds = _kind_counts(chunks)
@@ -523,13 +523,13 @@ class TestCLICommands:
         assert "section(s)" in result.stdout
 
     def test_cli_view_div_kind_filter(self, db_path: str):
-        result = _run_cli("view", "46", "--div", "STAVE ONE.", "--kind", "heading", db=db_path)
+        result = _run_cli("view", "46", "--div", "STAVE ONE", "--kind", "heading", db=db_path)
         assert result.returncode == 0
         assert "kind=heading" in result.stdout
-        assert "path=STAVE ONE." in result.stdout
+        assert "path=STAVE ONE" in result.stdout
 
     def test_cli_view_div_limit(self, db_path: str):
-        result = _run_cli("view", "46", "--div", "STAVE ONE.", "-n", "3", db=db_path)
+        result = _run_cli("view", "46", "--div", "STAVE ONE", "-n", "3", db=db_path)
         assert result.returncode == 0
         assert "3 chunk(s)" in result.stdout
 

@@ -23,11 +23,10 @@ from bs4 import BeautifulSoup, Tag
 class Chunk:
     """A discrete block extracted from a book, labelled by kind.
 
-    Structural divisions (div1–div4):
-    - div1 — broadest: BOOK, PART, ACT, VOLUME
-    - div2 — chapter-level: CHAPTER, STAVE, SCENE
-    - div3 — sub-chapter: SECTION
-    - div4 — reserved for deeper nesting
+    Structural divisions (div1–div4) are compacted so the shallowest
+    heading level always fills div1 first.  For a chapter-only book,
+    chapters go in div1; for a book with BOOK + CHAPTER, BOOK fills
+    div1 and CHAPTER fills div2.
 
     Kinds: ``"front_matter"``, ``"heading"``, ``"paragraph"``, ``"end_matter"``
     """
@@ -90,6 +89,15 @@ def chunk_html(html: str) -> list[Chunk]:
     sections = _parse_toc_sections(soup)
     if not sections:
         return []
+
+    # Compact levels so the shallowest level maps to div1.
+    # e.g. chapter-only books (min_level=2) shift chapters to div1.
+    min_level = min(s.level for s in sections)
+    if min_level > 1:
+        sections = [
+            _Section(s.anchor_id, s.heading_text, s.level - min_level + 1, s.body_anchor)
+            for s in sections
+        ]
 
     chunks: list[Chunk] = []
     pos = 0
@@ -162,7 +170,7 @@ def _parse_toc_sections(soup: BeautifulSoup) -> list[_Section]:
             continue
         used_headings.add(id(heading_el))
 
-        heading_text = _extract_heading_text(heading_el)
+        heading_text = _extract_heading_text(heading_el).rstrip(" .,;:])")
         if not heading_text:
             continue
 

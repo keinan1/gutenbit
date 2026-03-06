@@ -129,10 +129,10 @@ def test_chunks_stored(tmp_path):
 def test_chunks_have_chapters(tmp_path):
     db = _make_db(tmp_path)
     rows = db._conn.execute(
-        "SELECT div2 FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position",
+        "SELECT div1 FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position",
         (1,),
     ).fetchall()
-    chapters = [r["div2"] for r in rows]
+    chapters = [r["div1"] for r in rows]
     assert chapters == ["CHAPTER 1", "CHAPTER 1", "CHAPTER 2"]
 
 
@@ -267,7 +267,7 @@ def test_search_result_fields(tmp_path):
     assert r.book_id == 1
     assert r.title == "Moby Dick"
     assert r.authors == "Melville, Herman"
-    assert r.div2 == "CHAPTER 1"
+    assert r.div1 == "CHAPTER 1"
     assert r.kind == "paragraph"
     assert r.char_count > 0
     assert r.score > 0
