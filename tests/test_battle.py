@@ -360,10 +360,9 @@ class TestSherlockHolmes:
 class TestBlackstonesCommentaries:
     """PG 30802 — Blackstone's Commentaries on the Laws of England.
 
-    This book is structurally challenging: the PG edition has 2500+ TOC links,
-    most of which are page references rather than chapter headings.  The chunker
-    produces headings that are mostly punctuation artifacts.  We validate that
-    the pipeline handles this gracefully — producing paragraphs and not crashing.
+    Structurally challenging: the PG edition has 2500+ TOC links (page refs,
+    errata, footnote anchors).  The chunker must extract real chapter headings
+    from ``<span class="smcap">`` wrapped text inside heading tags.
     """
 
     @pytest.fixture(scope="class")
@@ -373,22 +372,39 @@ class TestBlackstonesCommentaries:
     def test_produces_chunks(self, chunks: list[Chunk]):
         assert len(chunks) > 2000
 
-    def test_has_paragraphs(self, chunks: list[Chunk]):
-        kinds = _kind_counts(chunks)
-        assert kinds.get("paragraph", 0) > 1500
+    def test_heading_count(self, chunks: list[Chunk]):
+        headings = _headings(chunks)
+        # 26 sections: ERRATA, CONTENTS, INTRODUCTION, 4 Sections, Book heading, 18 Chapters
+        assert len(headings) == 26
 
-    def test_no_crash_on_many_toc_links(self, chunks: list[Chunk]):
-        # Main assertion: the chunker didn't crash on 2500+ TOC links
-        assert len(chunks) > 0
+    def test_no_punctuation_only_headings(self, chunks: list[Chunk]):
+        headings = _headings(chunks)
+        for h in headings:
+            assert any(c.isalpha() for c in h.content), (
+                f"Punctuation-only heading at pos {h.position}: {h.content!r}"
+            )
+
+    def test_chapter_headings(self, chunks: list[Chunk]):
+        headings = _headings(chunks)
+        chapter_headings = [h for h in headings if h.content.startswith("Chapter the")]
+        assert len(chapter_headings) == 18
+
+    def test_introduction_sections(self, chunks: list[Chunk]):
+        headings = _headings(chunks)
+        sections = [h for h in headings if h.content.startswith("Section the")]
+        assert len(sections) == 4
 
     def test_has_front_matter(self, chunks: list[Chunk]):
         kinds = _kind_counts(chunks)
         assert kinds.get("front_matter", 0) >= 1
 
+    def test_has_paragraphs(self, chunks: list[Chunk]):
+        kinds = _kind_counts(chunks)
+        assert kinds.get("paragraph", 0) > 1500
+
     def test_legal_content_present(self, chunks: list[Chunk]):
         paragraphs = [c for c in chunks if c.kind == "paragraph"]
         all_text = " ".join(p.content for p in paragraphs[:200])
-        # Blackstone's Commentaries discusses law
         assert "law" in all_text.lower()
 
 
