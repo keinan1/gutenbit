@@ -56,7 +56,7 @@ def test_single_chapter():
 
     assert len(headings) == 1
     assert headings[0].content == "CHAPTER I"
-    assert headings[0].div2 == "CHAPTER I"
+    assert headings[0].div1 == "CHAPTER I"
     assert len(paragraphs) == 2
 
 
@@ -193,7 +193,7 @@ def test_anchor_before_heading_pattern():
 
     assert len(headings) == 1
     assert headings[0].content == "CHAPTER 1"
-    assert headings[0].div2 == "CHAPTER 1"
+    assert headings[0].div1 == "CHAPTER 1"
 
 
 def test_illustration_links_ignored():
@@ -210,7 +210,7 @@ def test_illustration_links_ignored():
     headings = [c for c in chunks if c.kind == "heading"]
 
     assert len(headings) == 1
-    assert headings[0].content == "STAVE ONE."
+    assert headings[0].content == "STAVE ONE"
 
 
 def test_page_number_links_ignored():
@@ -277,7 +277,7 @@ def test_heading_with_pagenum_span():
     chunks = chunk_html(html)
     headings = [c for c in chunks if c.kind == "heading"]
     assert len(headings) == 1
-    assert headings[0].content == "CHAPTER I."
+    assert headings[0].content == "CHAPTER I"
 
 
 def test_heading_from_img_alt():
@@ -289,7 +289,7 @@ def test_heading_from_img_alt():
     chunks = chunk_html(html)
     headings = [c for c in chunks if c.kind == "heading"]
     assert len(headings) == 1
-    assert headings[0].content == "CHAPTER I."
+    assert headings[0].content == "CHAPTER I"
 
 
 # ------------------------------------------------------------------

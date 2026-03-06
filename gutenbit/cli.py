@@ -42,7 +42,7 @@ typical workflow:
   5. gutenbit search "Marley ghost" --book-id 46  # find relevant chunks
 
 chunk kinds:  front_matter, heading, paragraph, end_matter
-division hierarchy:  div1 (BOOK/PART) > div2 (CHAPTER) > div3 (SECTION) > div4
+division hierarchy:  div1 > div2 > div3 > div4  (levels compact to fill from div1)
 
 all data is stored in a local SQLite database (default: gutenbit.db).""",
     )
@@ -210,7 +210,7 @@ selectors (choose at most one):
   --all | --chunk-id <id> | --div <DIV_PATH>
 
 chunk kinds:  front_matter, heading, paragraph, end_matter
-division hierarchy:  div1/div2/div3/div4""",
+division hierarchy:  div1 > div2 > div3 > div4  (compacted from shallowest level)""",
     )
     vw.add_argument("book_id", type=int, help="Project Gutenberg book ID")
     vw.add_argument("--all", action="store_true", help="print full reconstructed text")
