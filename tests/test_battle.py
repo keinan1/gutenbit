@@ -9,6 +9,7 @@ network access, so they are gated behind ``-m network``::
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 
@@ -193,6 +194,15 @@ class TestCrimeAndPunishment:
         # Total: ~48 headings (translator's preface + title + 6 parts + epilogue + ~41 chapters)
         assert len(headings) >= 40
 
+    def test_no_toc_labels_in_front_matter(self, chunks: list[Chunk]):
+        front = [c.content.strip() for c in chunks if c.kind == "front_matter"]
+        toc_like = [
+            text
+            for text in front
+            if re.fullmatch(r"(?:PART|CHAPTER)\.?\s+[IVXLCDM0-9]+\.?", text, re.IGNORECASE)
+        ]
+        assert toc_like == []
+
 
 class TestChristmasCarol:
     """PG 46 — STAVE headings."""
@@ -243,6 +253,15 @@ class TestNicholasNickleby:
         headings = _headings(chunks)
         assert any("PREFACE" in h.content.upper() for h in headings)
 
+    def test_no_toc_labels_in_front_matter(self, chunks: list[Chunk]):
+        front = [c.content.strip() for c in chunks if c.kind == "front_matter"]
+        toc_like = [
+            text
+            for text in front
+            if re.fullmatch(r"CHAPTER\.?\s+[IVXLCDM0-9]+\.?", text, re.IGNORECASE)
+        ]
+        assert toc_like == []
+
 
 class TestOliverTwist:
     """PG 730 — Chapters with long descriptive titles."""
@@ -290,6 +309,12 @@ class TestPrideAndPrejudice:
     def test_has_front_matter(self, chunks: list[Chunk]):
         kinds = _kind_counts(chunks)
         assert kinds.get("front_matter", 0) >= 1
+
+    def test_dropcap_letters_preserved(self, chunks: list[Chunk]):
+        paragraphs = [c.content for c in chunks if c.kind == "paragraph"]
+        matches = [p for p in paragraphs if "BENNET was among the earliest" in p]
+        assert matches
+        assert any("MR. BENNET" in p.upper() for p in matches)
 
 
 class TestLockeSecondTreatise:

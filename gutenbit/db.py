@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import time
 from dataclasses import astuple, dataclass
@@ -86,6 +87,14 @@ JOIN chunks c ON c.id = chunks_fts.rowid
 JOIN books b ON b.id = c.book_id
 WHERE chunks_fts MATCH ?
 """
+
+_DIV_TRAILING_PUNCT_RE = re.compile(r"[.,;:!?]+$")
+
+
+def _normalize_div_segment(value: str) -> str:
+    """Normalize a div path segment for stable matching."""
+    cleaned = " ".join(value.split()).strip()
+    return _DIV_TRAILING_PUNCT_RE.sub("", cleaned)
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,8 +284,11 @@ class Database:
         kinds: list[str] | None = None,
         limit: int = 0,
     ) -> list[ChunkRecord]:
-        """Return chunks under an exact division path prefix."""
-        parts = [p.strip() for p in div_path.split("/") if p.strip()]
+        """Return chunks under a division path prefix.
+
+        Matching is exact by segment except that trailing punctuation is ignored.
+        """
+        parts = [_normalize_div_segment(p) for p in div_path.split("/") if p.strip()]
         if len(parts) > 4:
             raise ValueError("div path has too many segments (max 4: div1/div2/div3/div4)")
 
@@ -288,7 +300,11 @@ class Database:
         for row in rows:
             if kinds and row["kind"] not in kinds:
                 continue
-            row_parts = [d for d in [row["div1"], row["div2"], row["div3"], row["div4"]] if d]
+            row_parts = [
+                _normalize_div_segment(d)
+                for d in [row["div1"], row["div2"], row["div3"], row["div4"]]
+                if d
+            ]
             if parts and row_parts[: len(parts)] != parts:
                 continue
             out.append(

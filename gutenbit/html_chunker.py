@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 # ---------------------------------------------------------------------------
 # Public data structures
@@ -238,7 +238,9 @@ def _paragraphs_before(soup: BeautifulSoup, stop_anchor: Tag) -> list[str]:
         if el is stop_anchor or _is_ancestor_of(el, stop_anchor):
             break
         if isinstance(el, Tag) and el.name == "p":
-            text = " ".join(el.get_text().split()).strip()
+            if _is_toc_paragraph(el):
+                continue
+            text = _extract_paragraph_text(el)
             if text:
                 paragraphs.append(text)
     return paragraphs
@@ -259,10 +261,34 @@ def _paragraphs_between(start_anchor: Tag, stop_anchor: Tag | None) -> list[str]
         if stop_heading and isinstance(el, Tag) and el is stop_heading:
             break
         if isinstance(el, Tag) and el.name == "p":
-            text = " ".join(el.get_text().split()).strip()
+            if _is_toc_paragraph(el):
+                continue
+            text = _extract_paragraph_text(el)
             if text:
                 paragraphs.append(text)
     return paragraphs
+
+
+def _extract_paragraph_text(paragraph: Tag) -> str:
+    """Get clean paragraph text, preserving drop-cap img ``alt`` text."""
+    paragraph_copy = BeautifulSoup(str(paragraph), "html.parser").find("p")
+    if paragraph_copy is None:
+        return ""
+
+    for img in paragraph_copy.find_all("img"):
+        alt_value = img.get("alt")
+        alt_text = " ".join(str(alt_value or "").split()).strip()
+        if alt_text:
+            img.replace_with(NavigableString(alt_text))
+        else:
+            img.decompose()
+
+    return " ".join(paragraph_copy.get_text().split()).strip()
+
+
+def _is_toc_paragraph(paragraph: Tag) -> bool:
+    """Return True for TOC/navigation paragraphs."""
+    return paragraph.find("a", class_="pginternal") is not None
 
 
 def _is_ancestor_of(potential_ancestor: object, target: Tag) -> bool:

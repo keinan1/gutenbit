@@ -217,7 +217,7 @@ division hierarchy:  div1/div2/div3/div4""",
     vw.add_argument("--chunk-id", type=int, help="retrieve one exact chunk by chunk id")
     vw.add_argument(
         "--div",
-        help="retrieve chunks under exact div path prefix (e.g. PART ONE/CHAPTER I)",
+        help="retrieve chunks under div path prefix (e.g. PART ONE/CHAPTER I)",
     )
     vw.add_argument(
         "--around", type=int, default=0, help="neighbors on each side (for --chunk-id)"
