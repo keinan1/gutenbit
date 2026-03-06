@@ -96,6 +96,27 @@ first entering a neighbourhood.</p>
 """,
 )
 
+_BOOK3 = BookRecord(
+    id=3,
+    title="A Christmas Carol",
+    authors="Dickens, Charles",
+    language="en",
+    subjects="Ghost stories",
+    locc="PR",
+    bookshelves="Best Books Ever Listings",
+    issued="1998-06-01",
+    type="Text",
+)
+
+_BOOK3_HTML = _make_html(
+    "A Christmas Carol",
+    """
+<p class="toc"><a href="#s1" class="pginternal">STAVE ONE</a></p>
+<h2><a id="s1"></a>STAVE ONE.</h2>
+<p>Marley was dead: to begin with.</p>
+""",
+)
+
 
 def _make_db(tmp_path):
     """Create a Database with test data (bypassing download)."""
@@ -121,9 +142,9 @@ def _run_cli(db_path, *args):
 def test_chunks_stored(tmp_path):
     db = _make_db(tmp_path)
     rows = db._conn.execute("SELECT COUNT(*) as n FROM chunks").fetchone()
-    # Book 1: 2 front_matter (TOC) + heading + 2 para + heading + 1 para = 7
-    # Book 2: 1 front_matter (TOC) + heading + 1 para = 3
-    assert rows["n"] == 10
+    # Book 1: heading + 2 para + heading + 1 para = 5
+    # Book 2: heading + 1 para = 2
+    assert rows["n"] == 7
 
 
 def test_chunks_have_chapters(tmp_path):
@@ -143,8 +164,6 @@ def test_chunks_have_kinds(tmp_path):
     ).fetchall()
     kinds = [r["kind"] for r in rows]
     assert kinds == [
-        "front_matter",
-        "front_matter",
         "heading",
         "paragraph",
         "paragraph",
@@ -181,7 +200,7 @@ def test_char_count_stored(tmp_path):
 def test_chunks_method_returns_all(tmp_path):
     db = _make_db(tmp_path)
     chunks = db.chunks(1)
-    assert len(chunks) == 7
+    assert len(chunks) == 5
 
 
 def test_chunks_method_filters_by_kind(tmp_path):
@@ -334,13 +353,13 @@ def test_search_filter_by_kind(tmp_path):
 def test_search_mode_first_orders_by_position(tmp_path):
     db = _make_db(tmp_path)
     results = db.search("CHAPTER", book_id=1, kind="heading", mode="first", limit=2)
-    assert [r.position for r in results] == [2, 5]
+    assert [r.position for r in results] == [0, 3]
 
 
 def test_search_mode_last_orders_reverse_position(tmp_path):
     db = _make_db(tmp_path)
     results = db.search("CHAPTER", book_id=1, kind="heading", mode="last", limit=2)
-    assert [r.position for r in results] == [5, 2]
+    assert [r.position for r in results] == [3, 0]
 
 
 # ------------------------------------------------------------------
@@ -411,6 +430,16 @@ def test_view_div_with_filters_and_limit(tmp_path):
     assert "div='CHAPTER 1'" in out
     assert "kind=paragraph" in out
     assert "1 chunk(s)" in out
+
+
+def test_chunks_by_div_ignores_trailing_punctuation(tmp_path):
+    db = Database(tmp_path / "test.db")
+    db._store(_BOOK3, chunk_html(_BOOK3_HTML))
+    rows = db.chunks_by_div(3, "STAVE ONE", kinds=["heading"])
+    db.close()
+
+    assert len(rows) == 1
+    assert rows[0].div2 == "STAVE ONE."
 
 
 def test_view_rejects_multiple_selectors(tmp_path):

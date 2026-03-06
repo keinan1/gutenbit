@@ -262,6 +262,21 @@ def test_front_matter_before_first_section():
     assert "Famous Author" in front[0].content
 
 
+def test_toc_paragraphs_not_front_matter():
+    html = _make_html("""
+    <p>Title Page: A Great Novel by Famous Author.</p>
+    <p class="toc"><a href="#ch1" class="pginternal">CHAPTER I</a></p>
+    <p class="toc"><a href="#ch2" class="pginternal">CHAPTER II</a></p>
+    <h2><a id="ch1"></a>CHAPTER I</h2>
+    <p>Chapter one content.</p>
+    <h2><a id="ch2"></a>CHAPTER II</h2>
+    <p>Chapter two content.</p>
+    """)
+    chunks = chunk_html(html)
+    front = [c.content for c in chunks if c.kind == "front_matter"]
+    assert front == ["Title Page: A Great Novel by Famous Author."]
+
+
 # ------------------------------------------------------------------
 # Heading text extraction
 # ------------------------------------------------------------------
@@ -290,6 +305,18 @@ def test_heading_from_img_alt():
     headings = [c for c in chunks if c.kind == "heading"]
     assert len(headings) == 1
     assert headings[0].content == "CHAPTER I"
+
+
+def test_paragraph_from_img_alt_drop_cap():
+    html = _make_html("""
+    <p><a href="#ch1" class="pginternal">CHAPTER I</a></p>
+    <h2><a id="ch1"></a>CHAPTER I</h2>
+    <p><img alt="M" src="dropcap.jpg">r. Bennet was among the earliest.</p>
+    """)
+    chunks = chunk_html(html)
+    paragraphs = [c for c in chunks if c.kind == "paragraph"]
+    assert len(paragraphs) == 1
+    assert paragraphs[0].content.startswith("Mr. Bennet")
 
 
 # ------------------------------------------------------------------
