@@ -549,7 +549,10 @@ class TestCLICommands:
         assert "#  Section" in result.stdout
         assert "Paras" in result.stdout
         assert "Chars" in result.stdout
-        assert "Path" in result.stdout
+        assert "Read" in result.stdout
+        assert "Chunk ID" in result.stdout
+        assert "Opening" in result.stdout
+        assert "--chunk-id" in result.stdout
         assert "\n    section=" not in result.stdout
 
     def test_cli_view_section_kind_filter(self, db_path: str):

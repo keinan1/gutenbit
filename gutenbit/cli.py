@@ -434,8 +434,12 @@ def _cmd_search(args: argparse.Namespace) -> int:
 
 
 def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | None:
-    all_chunks = db.chunks(book_id)
-    if not all_chunks:
+    rows = db._conn.execute(
+        "SELECT id, position, div1, div2, div3, div4, content, kind, char_count "
+        "FROM chunks WHERE book_id = ? ORDER BY position",
+        (book_id,),
+    ).fetchall()
+    if not rows:
         return None
 
     book = db.book(book_id)
@@ -448,12 +452,23 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
     subjects = _split_semicolon_list(book.subjects) if book else []
     bookshelves = _split_semicolon_list(book.bookshelves) if book else []
 
-    sections: list[dict[str, str | int]] = []
+    sections: list[dict[str, object]] = []
     kind_counts = {kind: 0 for kind in CHUNK_KINDS}
     total_chars = 0
     opening_paragraphs = 0
     opening_chars = 0
-    for pos, div1, div2, div3, div4, content, kind, char_count in all_chunks:
+    opening_first_chunk_id: int | None = None
+    opening_line = ""
+    for row in rows:
+        chunk_id = int(row["id"])
+        pos = int(row["position"])
+        div1 = str(row["div1"])
+        div2 = str(row["div2"])
+        div3 = str(row["div3"])
+        div4 = str(row["div4"])
+        content = str(row["content"])
+        kind = str(row["kind"])
+        char_count = int(row["char_count"])
         kind_counts[kind] = kind_counts.get(kind, 0) + 1
         total_chars += char_count
 
@@ -466,14 +481,22 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
                     "position": pos,
                     "paragraphs": 0,
                     "chars": 0,
+                    "first_chunk_id": chunk_id,
+                    "opening_line": "",
                 }
             )
         elif kind == "paragraph" and sections:
             sections[-1]["paragraphs"] = int(sections[-1]["paragraphs"]) + 1
             sections[-1]["chars"] = int(sections[-1]["chars"]) + char_count
+            if not sections[-1]["opening_line"]:
+                sections[-1]["opening_line"] = _single_line(content)
         elif kind == "paragraph":
             opening_paragraphs += 1
             opening_chars += char_count
+            if opening_first_chunk_id is None:
+                opening_first_chunk_id = chunk_id
+            if not opening_line:
+                opening_line = _single_line(content)
 
     if opening_paragraphs:
         sections.insert(
@@ -484,10 +507,12 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
                 "position": -1,
                 "paragraphs": opening_paragraphs,
                 "chars": opening_chars,
+                "first_chunk_id": opening_first_chunk_id,
+                "opening_line": opening_line,
             },
         )
 
-    total_chunks = len(all_chunks)
+    total_chunks = len(rows)
     total_sections = len(sections)
     total_paragraphs = kind_counts.get("paragraph", 0)
     est_words = round(total_chars / 5) if total_chars else 0
@@ -504,6 +529,21 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
     if first_path:
         safe_section = first_path.replace('"', '\\"')
         first_section_cmd = f'gutenbit view {book_id} --section "{safe_section}" -n 20'
+    first_chunk_id = next(
+        (
+            int(sec["first_chunk_id"])
+            for sec in sections
+            if sec.get("first_chunk_id") is not None
+        ),
+        None,
+    )
+    view_first_chunk_cmd = ""
+    view_first_chunk_around_cmd = ""
+    if first_chunk_id is not None:
+        view_first_chunk_cmd = f"gutenbit view {book_id} --chunk-id {first_chunk_id}"
+        view_first_chunk_around_cmd = (
+            f"gutenbit view {book_id} --chunk-id {first_chunk_id} --around 2"
+        )
 
     return {
         "book": {
@@ -534,12 +574,19 @@ def _build_section_summary(db: Database, book_id: int) -> dict[str, object] | No
                 "position": int(sec["position"]),
                 "paragraphs": int(sec["paragraphs"]),
                 "chars": int(sec["chars"]),
+                "read_time": _estimate_read_time(round(int(sec["chars"]) / 5)),
+                "first_chunk_id": (
+                    int(sec["first_chunk_id"]) if sec["first_chunk_id"] is not None else None
+                ),
+                "opening_line": str(sec["opening_line"]),
             }
             for idx, sec in enumerate(sections, start=1)
         ],
         "quick_actions": {
             "search": search_cmd,
             "view_first_section": first_section_cmd,
+            "view_first_chunk": view_first_chunk_cmd,
+            "view_first_chunk_around": view_first_chunk_around_cmd,
         },
     }
 
@@ -613,42 +660,63 @@ def _render_section_summary(db: Database, book_id: int, *, as_json: bool = False
     if not sections:
         print("  (no headings found)")
     else:
-        section_values = [str(sec["heading"]) for sec in sections]
+        section_values = [str(sec["path"]) or str(sec["heading"]) for sec in sections]
         paras_values = [_format_int(int(sec["paragraphs"])) for sec in sections]
         char_values = [_format_int(int(sec["chars"])) for sec in sections]
+        read_values = [str(sec["read_time"]) for sec in sections]
+        first_id_values = [
+            str(sec["first_chunk_id"]) if sec["first_chunk_id"] is not None else "-"
+            for sec in sections
+        ]
+        opening_values = [str(sec["opening_line"]) or "-" for sec in sections]
 
         idx_width = max(1, len(str(len(sections))))
-        section_width = min(44, max(len("Section"), max(len(v) for v in section_values)))
+        section_width = min(40, max(len("Section"), max(len(v) for v in section_values)))
         paras_width = max(len("Paras"), max(len(v) for v in paras_values))
         chars_width = max(len("Chars"), max(len(v) for v in char_values))
+        read_width = max(len("Read"), max(len(v) for v in read_values))
+        chunk_id_label = "Chunk ID"
+        first_id_width = max(len(chunk_id_label), max(len(v) for v in first_id_values))
+        opening_width = min(56, max(len("Opening"), max(len(v) for v in opening_values)))
 
         print(
             f" {'#':>{idx_width}}  {'Section':<{section_width}}  "
-            f"{'Paras':>{paras_width}}  {'Chars':>{chars_width}}  Path"
+            f"{'Paras':>{paras_width}}  {'Chars':>{chars_width}}  "
+            f"{'Read':>{read_width}}  {chunk_id_label:>{first_id_width}}  {'Opening':<{opening_width}}"
         )
         print(
             f" {'-' * idx_width}  {'-' * section_width}  "
-            f"{'-' * paras_width}  {'-' * chars_width}  {'-' * len('Path')}"
+            f"{'-' * paras_width}  {'-' * chars_width}  {'-' * read_width}  "
+            f"{'-' * first_id_width}  {'-' * opening_width}"
         )
 
         for idx, sec in enumerate(sections, start=1):
-            raw_heading = str(sec["heading"])
-            heading = raw_heading
-            if len(heading) > section_width:
+            section_label = str(sec["path"]) or str(sec["heading"])
+            if len(section_label) > section_width:
                 keep = max(1, section_width - 3)
-                heading = heading[:keep] + "..."
+                section_label = section_label[:keep] + "..."
             paragraphs = _format_int(int(sec["paragraphs"]))
             chars = _format_int(int(sec["chars"]))
-            section_path = str(sec["path"]) or "(root)"
+            read_time = str(sec["read_time"])
+            first_id = str(sec["first_chunk_id"]) if sec["first_chunk_id"] is not None else "-"
+            opening = str(sec["opening_line"]) or "-"
+            if len(opening) > opening_width:
+                keep = max(1, opening_width - 3)
+                opening = opening[:keep] + "..."
             print(
-                f" {idx:>{idx_width}}  {heading:<{section_width}}  "
-                f"{paragraphs:>{paras_width}}  {chars:>{chars_width}}  {section_path}"
+                f" {idx:>{idx_width}}  {section_label:<{section_width}}  "
+                f"{paragraphs:>{paras_width}}  {chars:>{chars_width}}  "
+                f"{read_time:>{read_width}}  {first_id:>{first_id_width}}  {opening:<{opening_width}}"
             )
 
     print("\nQuick actions")
     print(f"  {quick_actions['search']}")
     if quick_actions["view_first_section"]:
         print(f"  {quick_actions['view_first_section']}")
+    if quick_actions["view_first_chunk"]:
+        print(f"  {quick_actions['view_first_chunk']}")
+    if quick_actions["view_first_chunk_around"]:
+        print(f"  {quick_actions['view_first_chunk_around']}")
     return 0
 
 

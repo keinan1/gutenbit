@@ -385,7 +385,10 @@ def test_view_default_shows_structure(tmp_path):
     assert "#  Section" in out
     assert "Paras" in out
     assert "Chars" in out
-    assert "Path" in out
+    assert "Read" in out
+    assert "Chunk ID" in out
+    assert "Opening" in out
+    assert "--chunk-id" in out
 
 
 def test_view_default_json(tmp_path):
@@ -405,6 +408,12 @@ def test_view_default_json(tmp_path):
     assert payload["sections"][0]["heading"] == "CHAPTER 1"
     assert payload["quick_actions"]["search"] == (
         "gutenbit search <query> --book-id 1 --kind paragraph"
+    )
+    assert payload["quick_actions"]["view_first_chunk"].startswith(
+        "gutenbit view 1 --chunk-id "
+    )
+    assert payload["quick_actions"]["view_first_chunk_around"].startswith(
+        "gutenbit view 1 --chunk-id "
     )
 
 
