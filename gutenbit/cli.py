@@ -13,6 +13,19 @@ from gutenbit.db import Database
 DEFAULT_DB = "gutenbit.db"
 
 
+def _preview(text: str, limit: int) -> str:
+    flat = text.replace("\n", " ")
+    if len(flat) <= limit:
+        return flat
+    return flat[:limit] + "…"
+
+
+def _fts_phrase_query(query: str) -> str:
+    """Wrap a raw query as an exact FTS5 phrase, escaping inner quotes."""
+    escaped = query.replace('"', '""')
+    return f'"{escaped}"'
+
+
 def _build_parser() -> argparse.ArgumentParser:
     fmt = argparse.RawDescriptionHelpFormatter
     p = argparse.ArgumentParser(
@@ -150,24 +163,36 @@ chunk kinds:  front_matter, heading, paragraph, end_matter""",
             "Full-text search using SQLite FTS5 with BM25 ranking. "
             "Searches across all stored books unless filtered. "
             "Supports standard FTS5 query syntax: quoted phrases, "
-            "AND/OR/NOT operators, prefix queries (word*)."
+            "AND/OR/NOT operators, prefix queries (word*), and positional modes."
         ),
         epilog="""\
 examples:
-  gutenbit search "battle"                            # across all books
-  gutenbit search "Marley ghost" --book-id 46         # one book
-  gutenbit search "freedom" --kind paragraph          # paragraphs only
-  gutenbit search "prince" --author Tolstoy -n 5      # by author, top 5
-  gutenbit search '"to be or not"'                    # exact phrase (FTS5)
+  gutenbit search "battle"                                  # relevance-ranked
+  gutenbit search "Levin" --book-id 1399 --mode first       # first occurrence
+  gutenbit search "Levin" --book-id 1399 --mode last        # last occurrence
+  gutenbit search "may it be" --phrase --book-id 2554 -n 20 # exact phrase
+  gutenbit search "freedom" --kind paragraph -n 5           # filtered top hits
 
-output fields:  [BOOK_ID] TITLE  DIV_PATH
-                score  kind  char_count
-                CONTENT_PREVIEW
+output fields:
+  rank, book_id, chunk_id, position, title
+  path, score, kind, char_count
+  preview text
 
 tip: use 'gutenbit toc <id>' first to see a book's structure, then
      narrow searches with --book-id and --kind.""",
     )
     se.add_argument("query", help="FTS5 search query (supports phrases, AND/OR/NOT, prefix*)")
+    se.add_argument(
+        "--phrase",
+        action="store_true",
+        help="treat query as an exact phrase (auto-wrap in FTS5 quotes)",
+    )
+    se.add_argument(
+        "--mode",
+        choices=["ranked", "first", "last"],
+        default="ranked",
+        help="search mode: ranked (BM25), first (earliest), last (latest)",
+    )
     se.add_argument("--author", help="filter results by author (substring match)")
     se.add_argument("--title", help="filter results by title (substring match)")
     se.add_argument("--book-id", type=int, help="restrict to a single book by PG ID")
@@ -175,7 +200,19 @@ tip: use 'gutenbit toc <id>' first to see a book's structure, then
         "--kind",
         help="filter by chunk kind (front_matter|heading|paragraph|end_matter)",
     )
-    se.add_argument("-n", "--limit", type=int, default=20, help="max results (default: 20)")
+    se.add_argument(
+        "-n",
+        "--limit",
+        type=int,
+        default=0,
+        help="max results (default: ranked=20, first/last=1)",
+    )
+    se.add_argument(
+        "--preview-chars",
+        type=int,
+        default=140,
+        help="preview length per result (default: 140)",
+    )
 
     # --- toc ---
     toc = sub.add_parser(
@@ -319,26 +356,36 @@ def _cmd_chunks(args: argparse.Namespace) -> int:
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
+    search_query = _fts_phrase_query(args.query) if args.phrase else args.query
+    default_limit = 1 if args.mode in {"first", "last"} else 20
+    limit = args.limit if args.limit > 0 else default_limit
+    preview_chars = args.preview_chars if args.preview_chars > 0 else 140
+
     with Database(args.db) as db:
         results = db.search(
-            args.query,
+            search_query,
             author=args.author,
             title=args.title,
             book_id=args.book_id,
             kind=args.kind,
-            limit=args.limit,
+            mode=args.mode,
+            limit=limit,
         )
     if not results:
         print("No results.")
         return 0
-    for r in results:
-        divs = "/".join(d for d in [r.div1, r.div2, r.div3, r.div4] if d)
-        preview = r.content[:120].replace("\n", " ")
-        if len(r.content) > 120:
-            preview += "…"
-        print(f"  [{r.book_id}] {r.title[:40]:<40s}  {divs}")
-        print(f"         score={r.score:.2f}  kind={r.kind}  chars={r.char_count}")
-        print(f"         {preview}")
+
+    print(f"query={args.query!r}  mode={args.mode}  shown={len(results)}")
+    for idx, r in enumerate(results, start=1):
+        divs = " / ".join(d for d in [r.div1, r.div2, r.div3, r.div4] if d) or "(root)"
+        preview = _preview(r.content, preview_chars)
+        print(
+            f"\n{idx:>2}. book={r.book_id} chunk={r.chunk_id} pos={r.position}  "
+            f"title={r.title}"
+        )
+        print(f"    path={divs}")
+        print(f"    score={r.score:.2f}  kind={r.kind}  chars={r.char_count}")
+        print(f"    {preview}")
         print()
     print(f"{len(results)} result(s)")
     return 0

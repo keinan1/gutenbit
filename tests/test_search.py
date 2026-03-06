@@ -317,3 +317,15 @@ def test_search_filter_by_kind(tmp_path):
     results = db.search("CHAPTER", kind="heading")
     assert len(results) >= 1
     assert all(r.kind == "heading" for r in results)
+
+
+def test_search_mode_first_orders_by_position(tmp_path):
+    db = _make_db(tmp_path)
+    results = db.search("CHAPTER", book_id=1, kind="heading", mode="first", limit=2)
+    assert [r.position for r in results] == [2, 5]
+
+
+def test_search_mode_last_orders_reverse_position(tmp_path):
+    db = _make_db(tmp_path)
+    results = db.search("CHAPTER", book_id=1, kind="heading", mode="last", limit=2)
+    assert [r.position for r in results] == [5, 2]
