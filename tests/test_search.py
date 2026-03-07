@@ -377,26 +377,42 @@ def test_search_help_documents_mode_ordering(tmp_path):
 
 
 # ------------------------------------------------------------------
-# CLI view command
+# CLI view/toc commands
 # ------------------------------------------------------------------
 
 
-def test_view_default_shows_structure(tmp_path):
+def test_view_default_shows_opening_and_hints(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
 
     code, out, _err = _run_cli(db_path, "view", "1")
     assert code == 0
+    assert "Call me Ishmael" in out
+    assert "Quick actions" in out
+    assert "gutenbit toc 1" in out
+    assert "gutenbit view 1 --section 1 -n 20" in out
+    assert "gutenbit view 1 -n 0" in out
+    assert "position=" not in out
+    assert "section=" not in out
+
+
+def test_toc_default_shows_structure(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "toc", "1")
+    assert code == 0
     assert "Moby Dick" in out
     assert "CHAPTER 1" in out
     assert "Sections" in out
-    assert "Section" in out
+    assert "Section #" in out
+    assert "Section" in out and "Position" in out
     assert "Paras" in out
     assert "Chars" in out
     assert "Est words" in out
     assert "Est read" in out
-    assert "Position" in out
     assert "Opening" in out
     assert "--position" in out
 
@@ -417,8 +433,34 @@ def test_view_default_json(tmp_path):
 
     data = payload["data"]
     assert data["book_id"] == 1
-    assert data["mode"] == "summary"
-    summary = data["summary"]
+    assert data["mode"] == "opening"
+    assert data["opening_chunk_count"] == 3
+    assert data["n"] == 3
+    assert data["count"] == 3
+    assert data["full"] is True
+    assert data["meta"] is False
+    assert data["chunks"][0] == "CHAPTER 1"
+    assert data["action_hints"]["toc"] == "gutenbit toc 1"
+    assert data["action_hints"]["view_first_section"] == "gutenbit view 1 --section 1 -n 20"
+
+
+def test_toc_default_json(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "toc", "1", "--json")
+    assert code == 0
+
+    payload = json.loads(out)
+    assert payload["ok"] is True
+    assert payload["command"] == "toc"
+    assert payload["warnings"] == []
+    assert payload["errors"] == []
+
+    data = payload["data"]
+    assert data["book_id"] == 1
+    summary = data["toc"]
     assert summary["book"]["id"] == 1
     assert summary["book"]["title"] == "Moby Dick"
     assert summary["book"]["authors"] == "Melville, Herman"
@@ -426,8 +468,9 @@ def test_view_default_json(tmp_path):
     assert summary["overview"]["chunk_counts"]["heading"] == 2
     assert summary["sections"][0]["section"] == "CHAPTER 1"
     assert list(summary["sections"][0].keys()) == [
-        "position",
+        "section_number",
         "section",
+        "position",
         "paras",
         "chars",
         "est_words",
@@ -437,48 +480,47 @@ def test_view_default_json(tmp_path):
     assert summary["sections"][0]["est_words"] > 0
     assert summary["sections"][0]["opening_line"].endswith("…")
     assert len(summary["sections"][0]["opening_line"]) <= 141
-    assert summary["quick_actions"]["search"] == (
-        "gutenbit search <query> --book-id 1 --kind paragraph"
-    )
+    assert summary["quick_actions"]["search"] == "gutenbit search <query> --book-id 1"
+    assert summary["quick_actions"]["view_first_section"] == "gutenbit view 1 --section 1 -n 20"
     assert summary["quick_actions"]["view_first_position"].startswith(
         "gutenbit view 1 --position "
     )
-    assert summary["quick_actions"]["view_first_position_around"].startswith(
-        "gutenbit view 1 --position "
-    )
+    assert summary["quick_actions"]["view_from_position"].startswith("gutenbit view 1 --position ")
+    assert summary["quick_actions"]["view_full"] == "gutenbit view 1 -n 0"
 
 
-def test_view_json_all_selector(tmp_path):
+def test_view_json_full_with_n_zero(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--json", "--all")
+    code, out, _err = _run_cli(db_path, "view", "1", "--json", "-n", "0")
     assert code == 0
     payload = json.loads(out)
     assert payload["ok"] is True
     assert payload["command"] == "view"
-    assert payload["data"]["mode"] == "all"
+    assert payload["data"]["mode"] == "full"
+    assert payload["data"]["n"] == 0
     assert payload["data"]["book_id"] == 1
     assert payload["data"]["chars"] > 0
     assert "Call me Ishmael" in payload["data"]["content"]
 
 
-def test_view_all_and_missing_book(tmp_path):
+def test_view_full_with_n_zero_and_missing_book(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
 
-    ok_code, ok_out, _ok_err = _run_cli(db_path, "view", "1", "--all")
+    ok_code, ok_out, _ok_err = _run_cli(db_path, "view", "1", "-n", "0")
     assert ok_code == 0
     assert "Call me Ishmael" in ok_out
 
-    miss_code, miss_out, _miss_err = _run_cli(db_path, "view", "999", "--all")
+    miss_code, miss_out, _miss_err = _run_cli(db_path, "view", "999", "-n", "0")
     assert miss_code == 1
     assert "No text found" in miss_out
 
 
-def test_view_position_with_neighbors(tmp_path):
+def test_view_position_with_n(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     row = db._conn.execute(
@@ -491,13 +533,14 @@ def test_view_position_with_neighbors(tmp_path):
     position = row["position"]
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--position", str(position), "--around", "1")
+    code, out, _err = _run_cli(db_path, "view", "1", "--position", str(position), "-n", "2")
     assert code == 0
-    assert f"position={position}" in out
-    assert "section=CHAPTER 1" in out
+    assert "Call me Ishmael" in out
+    assert "It is a way I have of driving off the spleen" in out
+    assert "position=" not in out
 
 
-def test_view_section_with_filters_and_limit(tmp_path):
+def test_view_section_with_n_and_meta(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
@@ -508,14 +551,13 @@ def test_view_section_with_filters_and_limit(tmp_path):
         "1",
         "--section",
         "CHAPTER 1",
-        "--kind",
-        "paragraph",
         "-n",
         "1",
+        "--meta",
     )
     assert code == 0
     assert "section='CHAPTER 1'" in out
-    assert "kind=paragraph" in out
+    assert "kind=heading" in out
     assert "1 chunk(s)" in out
 
 
@@ -534,9 +576,9 @@ def test_view_section_miss_shows_examples(tmp_path):
     assert code == 1
     assert "No chunks found for book 1 under section 'BOOK THIRTEEN: 1812 / CHAPTER XII'." in out
     assert "Available sections include:" in out
-    assert "CHAPTER 1" in out
-    assert "CHAPTER 2" in out
-    assert "Tip: run `gutenbit view 1` to list all sections." in out
+    assert "1. CHAPTER 1" in out
+    assert "2. CHAPTER 2" in out
+    assert "Tip: run `gutenbit toc 1` to list all sections." in out
 
 
 def test_chunks_by_div_ignores_trailing_punctuation(tmp_path):
@@ -595,7 +637,28 @@ def test_view_section_accepts_punctuation_spacing_variants(tmp_path):
         "1",
     )
     assert code == 0
-    assert "section='book one / chapter i. the beginning'" in out
+    assert "CHAPTER I.The Beginning" in out
+
+
+def test_view_section_accepts_section_number(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--section", "2", "-n", "2")
+    assert code == 0
+    assert "I stuffed a shirt or two" in out
+
+
+def test_view_section_number_out_of_range(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--section", "99")
+    assert code == 1
+    assert "Section 99 is out of range for book 1" in out
+    assert "gutenbit toc 1" in out
 
 
 def test_view_rejects_multiple_selectors(tmp_path):
@@ -603,7 +666,9 @@ def test_view_rejects_multiple_selectors(tmp_path):
     db_path = db.path
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--all", "--section", "CHAPTER 1")
+    code, out, _err = _run_cli(
+        db_path, "view", "1", "--position", "1", "--section", "CHAPTER 1"
+    )
     assert code == 1
     assert "Choose at most one selector" in out
 
@@ -875,24 +940,24 @@ def test_ingest_remaps_to_canonical_catalog_id(tmp_path, monkeypatch):
 # ------------------------------------------------------------------
 
 
-def test_view_full_all_rejected(tmp_path):
+def test_view_preview_without_selector_rejected(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--full", "--all")
+    code, out, _err = _run_cli(db_path, "view", "1", "--preview")
     assert code == 1
-    assert "--full is redundant with --all" in out
+    assert "--preview can only be used with --position or --section." in out
 
 
-def test_view_full_without_selector_rejected(tmp_path):
+def test_view_chars_requires_preview(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--full")
+    code, out, _err = _run_cli(db_path, "view", "1", "--chars", "80")
     assert code == 1
-    assert "--full requires a selector" in out
+    assert "--chars can only be used with --preview." in out
 
 
 def test_search_preview_chars_zero_rejected(tmp_path):
@@ -915,14 +980,26 @@ def test_search_preview_chars_negative_rejected(tmp_path):
     assert "--preview-chars must be > 0" in out
 
 
-def test_view_preview_chars_zero_rejected(tmp_path):
+def test_view_chars_zero_rejected(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--preview-chars", "0")
+    code, out, _err = _run_cli(
+        db_path, "view", "1", "--section", "CHAPTER 1", "--preview", "--chars", "0"
+    )
     assert code == 1
-    assert "--preview-chars must be > 0" in out
+    assert "--chars must be > 0" in out
+
+
+def test_view_negative_n_rejected(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--section", "CHAPTER 1", "-n", "-1")
+    assert code == 1
+    assert "-n must be >= 0." in out
 
 
 def test_ingest_rejects_non_positive_ids(tmp_path):
@@ -1163,8 +1240,26 @@ def test_view_section_json_output(tmp_path):
     assert payload["command"] == "view"
     assert payload["data"]["mode"] == "section"
     assert payload["data"]["section"] == "CHAPTER 1"
+    assert payload["data"]["n"] == 1
+    assert payload["data"]["meta"] is False
     assert payload["data"]["count"] == 1
-    assert payload["data"]["chunks"][0]["section"] == "CHAPTER 1"
+    assert payload["data"]["chunks"][0] == "CHAPTER 1"
+
+
+def test_view_section_json_meta_output(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(
+        db_path, "view", "1", "--section", "CHAPTER 1", "-n", "1", "--meta", "--json"
+    )
+    assert code == 0
+    payload = json.loads(out)
+    chunk = payload["data"]["chunks"][0]
+    assert payload["data"]["meta"] is True
+    assert chunk["section"] == "CHAPTER 1"
+    assert chunk["position"] == 0
 
 
 def test_view_json_validation_error_uses_envelope(tmp_path):
@@ -1172,12 +1267,22 @@ def test_view_json_validation_error_uses_envelope(tmp_path):
     db_path = db.path
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--preview-chars", "0", "--json")
+    code, out, _err = _run_cli(
+        db_path,
+        "view",
+        "1",
+        "--section",
+        "CHAPTER 1",
+        "--preview",
+        "--chars",
+        "0",
+        "--json",
+    )
     assert code == 1
     payload = json.loads(out)
     assert payload["ok"] is False
     assert payload["command"] == "view"
-    assert payload["errors"] == ["--preview-chars must be > 0."]
+    assert payload["errors"] == ["--chars must be > 0."]
 
 
 def test_books_has_column_headers(tmp_path):
