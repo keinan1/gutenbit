@@ -5,7 +5,7 @@ Fast local search across Project Gutenberg's literary works. Download public-dom
 ## Install
 
 ```bash
-pip install gutenbit
+uv add gutenbit
 ```
 
 ## Python
