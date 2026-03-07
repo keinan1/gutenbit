@@ -69,6 +69,13 @@ def _command_error(
     return code
 
 
+def _no_chunks_message(db: Database, book_id: int) -> str:
+    """Return a descriptive error for a book with no chunks."""
+    if db.book(book_id) is None:
+        return f"Book {book_id} is not in the database. Use 'gutenbit ingest {book_id}' to add it."
+    return f"No chunks found for book {book_id}."
+
+
 def _preview(text: str, limit: int) -> str:
     flat = text.replace("\n", " ")
     if len(flat) <= limit:
@@ -875,15 +882,26 @@ def _cmd_search(args: argparse.Namespace) -> int:
             if not as_json:
                 print(f"warning: {warning}")
 
-        results = db.search(
-            search_query,
-            author=args.author,
-            title=args.title,
-            book_id=args.book_id,
-            kind=args.kind,
-            mode=args.mode,
-            limit=limit,
-        )
+        try:
+            results = db.search(
+                search_query,
+                author=args.author,
+                title=args.title,
+                book_id=args.book_id,
+                kind=args.kind,
+                mode=args.mode,
+                limit=limit,
+            )
+        except Exception as exc:
+            err_msg = str(exc)
+            if "fts5" in err_msg.lower() or "syntax error" in err_msg.lower():
+                hint = (
+                    f"Invalid search syntax: {err_msg}\n"
+                    f"Tip: use --phrase to search for literal text, "
+                    f"or quote phrases with double quotes."
+                )
+                return _command_error("search", hint, as_json=as_json)
+            raise
 
     if as_json:
         _print_json_envelope(
@@ -1073,7 +1091,7 @@ def _section_summary_json_payload(summary: dict[str, Any]) -> dict[str, Any]:
 def _render_section_summary(db: Database, book_id: int) -> int:
     summary = _build_section_summary(db, book_id)
     if summary is None:
-        print(f"No chunks found for book {book_id}.")
+        print(_no_chunks_message(db, book_id))
         return 1
 
     book = summary["book"]
@@ -1281,7 +1299,7 @@ def _cmd_toc(args: argparse.Namespace) -> int:
             if summary is None:
                 return _command_error(
                     "toc",
-                    f"No chunks found for book {args.book_id}.",
+                    _no_chunks_message(db, args.book_id),
                     as_json=True,
                     data={"book_id": args.book_id},
                 )
@@ -1409,7 +1427,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
                 if summary is None:
                     return _command_error(
                         "view",
-                        f"No chunks found for book {args.book_id}.",
+                        _no_chunks_message(db, args.book_id),
                         as_json=as_json,
                         data={
                             "book_id": args.book_id,
@@ -1585,7 +1603,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
         if not rows:
             return _command_error(
                 "view",
-                f"No chunks found for book {args.book_id}.",
+                _no_chunks_message(db, args.book_id),
                 as_json=as_json,
                 data={"book_id": args.book_id, "mode": "opening", "n": n},
             )
