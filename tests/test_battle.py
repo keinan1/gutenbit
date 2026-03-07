@@ -577,21 +577,24 @@ class TestCLICommands:
     def test_cli_view_default(self, db_path: str):
         result = _run_cli("view", "46", db=db_path)
         assert result.returncode == 0
+        assert "Quick actions" in result.stdout
+        assert "gutenbit toc 46" in result.stdout
+        assert "gutenbit view 46 --all" in result.stdout
+        assert "section=" not in result.stdout
+
+    def test_cli_toc_default(self, db_path: str):
+        result = _run_cli("toc", "46", db=db_path)
+        assert result.returncode == 0
         assert "A Christmas Carol" in result.stdout
         assert "STAVE" in result.stdout
         assert "Sections" in result.stdout
         assert "Section" in result.stdout
-        assert "Paras" in result.stdout
-        assert "Chars" in result.stdout
-        assert "Est words" in result.stdout
-        assert "Est read" in result.stdout
         assert "Position" in result.stdout
-        assert "Opening" in result.stdout
-        assert "--position" in result.stdout
-        assert "\n    section=" not in result.stdout
 
     def test_cli_view_section_kind_filter(self, db_path: str):
-        result = _run_cli("view", "46", "--section", "STAVE ONE", "--kind", "heading", db=db_path)
+        result = _run_cli(
+            "view", "46", "--section", "STAVE ONE", "--kind", "heading", "--meta", db=db_path
+        )
         assert result.returncode == 0
         assert "kind=heading" in result.stdout
         assert "section=STAVE ONE" in result.stdout
@@ -599,7 +602,7 @@ class TestCLICommands:
     def test_cli_view_section_limit(self, db_path: str):
         result = _run_cli("view", "46", "--section", "STAVE ONE", "-n", "3", db=db_path)
         assert result.returncode == 0
-        assert "3 chunk(s)" in result.stdout
+        assert "Marley was dead" in result.stdout
 
     def test_cli_view_position(self, db_path: str):
         with Database(db_path) as db:
@@ -612,7 +615,7 @@ class TestCLICommands:
         assert row is not None
         position = row["position"]
 
-        result = _run_cli("view", "46", "--position", str(position), db=db_path)
+        result = _run_cli("view", "46", "--position", str(position), "--meta", db=db_path)
         assert result.returncode == 0
         assert f"position={position}" in result.stdout
         assert "section=STAVE ONE" in result.stdout
@@ -636,8 +639,8 @@ class TestCLICommands:
     def test_cli_view_default_locke(self, db_path: str):
         result = _run_cli("view", "7370", db=db_path)
         assert result.returncode == 0
-        assert "CHAPTER." in result.stdout
-        assert "Sections" in result.stdout
+        assert "Quick actions" in result.stdout
+        assert "gutenbit toc 7370" in result.stdout
 
     def test_cli_view_all(self, db_path: str):
         result = _run_cli("view", "46", "--all", db=db_path)

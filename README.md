@@ -57,6 +57,15 @@ For `search --mode`, ordering semantics are explicit:
 - `first`: `book_id` ascending, then position ascending
 - `last`: `book_id` descending, then position descending
 
+## CLI ergonomics
+
+- `gutenbit toc <book_id>`: structural summary and numbered sections
+- `gutenbit view <book_id>`: opening excerpt (safe default for large books)
+- `gutenbit view <book_id> --section <N>`: view by section number from `toc`
+- `gutenbit view <book_id> --position <N>`: view by exact chunk position
+- `gutenbit view <book_id> --all`: full reconstructed text
+- `gutenbit view ... --meta`: include position/section metadata in text output
+
 ## Corpus boundaries
 
 `gutenbit` enforces a curated ingestion policy in `gutenbit/catalog.py`:
