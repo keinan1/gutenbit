@@ -1,6 +1,6 @@
 # gutenbit
 
-Fast local search across Project Gutenberg's public-domain library. Find, browse, and search over 70,000 literary works from your terminal or Python script.
+Fast local search across public-domain literary works. Find, browse, and search books from your terminal or Python script.
 
 ## Install
 
