@@ -49,7 +49,15 @@ class Chunk:
 # ---------------------------------------------------------------------------
 
 _BROAD_KEYWORDS = frozenset({"book", "part", "act", "epilogue", "volume"})
-CHUNKER_VERSION = 5
+CHUNKER_VERSION = 7
+
+# Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
+# with no subtitle text — used to merge consecutive number + title headings.
+_BARE_HEADING_NUMBER_RE = re.compile(
+    r"^(?:BOOK|PART|ACT|EPILOGUE|VOLUME|CHAPTER|STAVE|SCENE|SECTION)"
+    r"\.?\s+[IVXLCDM0-9]+\.?$",
+    re.IGNORECASE,
+)
 
 _HEADING_KEYWORD_RE = re.compile(
     r"^(?:BOOK|PART|ACT|EPILOGUE|VOLUME|CHAPTER|STAVE|SCENE|SECTION)\.?\s",
@@ -243,7 +251,68 @@ def _parse_toc_sections(
     # false matches like "CHAPTER I" / "CHAPTER II".
     if len(sections) >= 2 and sections[1].heading_text.startswith(sections[0].heading_text + " "):
         sections = sections[1:]
-    return sections
+    return _merge_bare_heading_pairs(sections)
+
+
+# Matches a structural heading pattern anywhere in text (keyword + number).
+# Used to reject subtitles that contain embedded headings like "... CHAPTER II".
+_EMBEDDED_HEADING_RE = re.compile(
+    r"(?:BOOK|PART|ACT|VOLUME|CHAPTER|STAVE|SCENE|SECTION)"
+    r"\.?\s+[IVXLCDM0-9]+",
+    re.IGNORECASE,
+)
+
+# Keywords that are almost exclusively structural even without a trailing number.
+_STANDALONE_STRUCTURAL_RE = re.compile(
+    r"\bEPILOGUE\b|\bPROLOGUE\b|\bAPPENDIX\b",
+    re.IGNORECASE,
+)
+
+
+def _next_heading_is_subtitle(heading_text: str) -> bool:
+    """Return True when a heading looks like a chapter subtitle, not a structural division."""
+    if _HEADING_KEYWORD_RE.match(heading_text):
+        return False
+    # Reject if the text contains an embedded structural heading pattern
+    # (e.g. "I hope Mr. Bingley will like it. CHAPTER II"), but allow
+    # incidental uses of keywords as ordinary words (e.g. "ACT OF PARLIAMENT",
+    # "A LOVE SCENE", "THE DEAN AND CHAPTER TAKE COUNSEL").
+    if _EMBEDDED_HEADING_RE.search(heading_text):
+        return False
+    # EPILOGUE, PROLOGUE, APPENDIX are almost always structural divisions.
+    return not _STANDALONE_STRUCTURAL_RE.search(heading_text)
+
+
+def _merge_bare_heading_pairs(sections: list[_Section]) -> list[_Section]:
+    """Merge bare chapter-number headings with their immediately following subtitle.
+
+    Detects the pattern ``<h3>CHAPTER I</h3><h5>WHO WILL BE THE NEW BISHOP?</h5>``
+    (common in Project Gutenberg editions) and combines them into a single section
+    with heading text ``"CHAPTER I WHO WILL BE THE NEW BISHOP?"``.
+    """
+    if len(sections) < 2:
+        return sections
+
+    merged: list[_Section] = []
+    i = 0
+    while i < len(sections):
+        sec = sections[i]
+        if (
+            i + 1 < len(sections)
+            and _BARE_HEADING_NUMBER_RE.fullmatch(sec.heading_text)
+            and _next_heading_is_subtitle(sections[i + 1].heading_text)
+        ):
+            # Merge: keep anchor and level from the chapter-number heading,
+            # combine heading text.
+            next_sec = sections[i + 1]
+            combined_text = f"{sec.heading_text} {next_sec.heading_text}"
+            combined_level = _classify_level(combined_text, False)
+            merged.append(_Section(sec.anchor_id, combined_text, combined_level, sec.body_anchor))
+            i += 2
+        else:
+            merged.append(sec)
+            i += 1
+    return merged
 
 
 def _parse_heading_sections(
@@ -282,7 +351,7 @@ def _parse_heading_sections(
         anchor_id = str(anchor.get("id", ""))
         sections.append(_Section(anchor_id, heading_text, level, anchor))
 
-    return sections
+    return _merge_bare_heading_pairs(sections)
 
 
 def _find_next_heading(

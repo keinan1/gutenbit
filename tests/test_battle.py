@@ -654,7 +654,7 @@ class TestCLICommands:
     def test_cli_view_missing_book(self, db_path: str):
         result = _run_cli("view", "99999", db=db_path)
         assert result.returncode == 1
-        assert "No chunks found" in result.stdout
+        assert "not in the database" in result.stdout
 
 
 class TestCLIDeleteCommand:
@@ -683,7 +683,7 @@ class TestCLIDeleteCommand:
 
         summary = _run_cli("view", "46", db=db_path)
         assert summary.returncode == 1
-        assert "No chunks found" in summary.stdout
+        assert "not in the database" in summary.stdout
 
         all_text = _run_cli("view", "46", "-n", "0", db=db_path)
         assert all_text.returncode == 1
