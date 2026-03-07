@@ -5,12 +5,6 @@ This guide walks through a complete workflow: find a book, download it, explore 
 ## Installation
 
 ```bash
-pip install gutenbit
-```
-
-Or with [uv](https://docs.astral.sh/uv/):
-
-```bash
 uv add gutenbit
 ```
 
