@@ -7,12 +7,6 @@ Gutenbit downloads public-domain books, parses their HTML into paragraph-level c
 ## Install
 
 ```bash
-pip install gutenbit
-```
-
-Or with [uv](https://docs.astral.sh/uv/):
-
-```bash
 uv add gutenbit
 ```
 
