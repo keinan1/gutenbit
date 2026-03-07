@@ -5,8 +5,8 @@ map. Each TOC link points to a body anchor inside an ``<h2>``–``<h3>`` tag,
 giving section boundaries and heading text directly from the markup.
 
 Corpus boundaries are defined by Gutenberg's explicit text delimiters:
-``*** START OF THE PROJECT GUTENBERG EBOOK ... ***`` through
-``*** END OF THE PROJECT GUTENBERG EBOOK ... ***``.
+``*** START OF (THE|THIS) PROJECT GUTENBERG EBOOK ... ***`` through
+``*** END OF (THE|THIS) PROJECT GUTENBERG EBOOK ... ***``.
 
 Each ``<p>`` element becomes its own chunk — no accumulation or merging.
 """
@@ -49,22 +49,32 @@ class Chunk:
 # ---------------------------------------------------------------------------
 
 _BROAD_KEYWORDS = frozenset({"book", "part", "act", "epilogue", "volume"})
-CHUNKER_VERSION = 3
+CHUNKER_VERSION = 4
 
 _HEADING_KEYWORD_RE = re.compile(
     r"^(?:BOOK|PART|ACT|EPILOGUE|VOLUME|CHAPTER|STAVE|SCENE|SECTION)\.?\s",
     re.IGNORECASE,
 )
 _START_DELIMITER_RE = re.compile(
-    r"\*\*\*\s*START OF THE PROJECT GUTENBERG EBOOK\b",
+    r"\*\*\*\s*START OF (?:THE|THIS) PROJECT GUTENBERG EBOOK\b",
     re.IGNORECASE,
 )
 _END_DELIMITER_RE = re.compile(
-    r"\*\*\*\s*END OF THE PROJECT GUTENBERG EBOOK\b",
+    r"\*\*\*\s*END OF (?:THE|THIS) PROJECT GUTENBERG EBOOK\b",
     re.IGNORECASE,
 )
 _HEADING_CITATION_SUFFIX_RE = re.compile(r"\s*\[\d+\]\s*$")
 _NUMERIC_LINK_TEXT_RE = re.compile(r"^\[?\d+\]?$")
+_ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$")
+_FRONT_MATTER_HEADINGS = frozenset(
+    {
+        "contents",
+        "illustrations",
+        "table of contents",
+        "list of illustrations",
+    }
+)
+
 _HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
 
 
@@ -128,11 +138,13 @@ def chunk_html(html: str) -> list[Chunk]:
     divs = ["", "", "", ""]
 
     # Opening paragraphs before first section remain unsectioned prose.
+    heading_texts = {s.heading_text.lower() for s in sections}
     for text in _paragraphs_before(
         soup,
         sections[0].body_anchor,
         tag_positions=tag_positions,
         bounds=bounds,
+        heading_texts=heading_texts,
     ):
         chunks.append(Chunk(pos, "", "", "", "", text, "paragraph"))
         pos += 1
@@ -225,6 +237,12 @@ def _parse_toc_sections(
         sections.append(_Section(anchor_id, heading_text, level, body_anchor))
 
     sections.sort(key=lambda section: tag_positions.get(id(section.body_anchor), float("inf")))
+    # Remove a leading title section whose heading is a prefix of the next section's
+    # heading (e.g. "ADVENTURES OF SHERLOCK HOLMES" before "ADVENTURES OF SHERLOCK
+    # HOLMES A SCANDAL IN BOHEMIA"). Require a space after the prefix to avoid
+    # false matches like "CHAPTER I" / "CHAPTER II".
+    if len(sections) >= 2 and sections[1].heading_text.startswith(sections[0].heading_text + " "):
+        sections = sections[1:]
     return sections
 
 
@@ -275,7 +293,7 @@ def _find_next_heading(
     bounds: _ContentBounds,
 ) -> Tag | None:
     """Find the next ``<h1>``–``<h3>`` heading after *anchor*."""
-    for el in anchor.find_all_next(limit=10):
+    for el in anchor.find_all_next(limit=25):
         if isinstance(el, Tag) and el.name in ("h1", "h2", "h3"):
             if used_headings is not None and id(el) in used_headings:
                 continue
@@ -288,8 +306,8 @@ def _find_next_heading(
 def _extract_heading_text(heading_el: Tag) -> str:
     """Get clean heading text from a heading tag.
 
-    Handles: direct text, ``<a>`` anchors, ``<img alt="...">``,
-    and strips ``<span class="pagenum">`` elements.
+    Handles: ``<br>`` line breaks, inline formatting (``<i>``, ``<b>``, etc.),
+    ``<img alt="...">``, and strips ``<span class="pagenum">`` elements.
     """
     heading_copy = BeautifulSoup(str(heading_el), "html.parser")
     for pagenum in heading_copy.select("span.pagenum"):
@@ -297,12 +315,10 @@ def _extract_heading_text(heading_el: Tag) -> str:
 
     root = heading_copy.find(_HEADING_TAGS) or heading_copy
 
-    # Try direct text nodes first (only accept if it has real words,
-    # not just stray punctuation between <span> elements).
-    direct_text = "".join(child for child in root.children if isinstance(child, str))
-    cleaned = " ".join(direct_text.split()).strip()
-    if cleaned and re.search(r"[A-Za-z0-9]", cleaned):
-        return cleaned
+    # Replace <br> with spaces so line-broken headings stay clean
+    # (e.g. "CHAPTER I.<br>The Period" → "CHAPTER I. The Period").
+    for br in root.find_all("br"):
+        br.replace_with(" ")
 
     # Try img alt text (illustrated editions).
     img = root.find("img", alt=True)
@@ -311,7 +327,7 @@ def _extract_heading_text(heading_el: Tag) -> str:
         if alt:
             return alt
 
-    # Fall back to full text content.
+    # Use full text content (pagenum spans already removed, <br> replaced).
     return " ".join(root.get_text().split()).strip()
 
 
@@ -343,8 +359,14 @@ def _paragraphs_before(
     *,
     tag_positions: dict[int, int],
     bounds: _ContentBounds,
+    heading_texts: set[str] | None = None,
 ) -> list[str]:
-    """Collect paragraph text from body start up to *stop_anchor*."""
+    """Collect paragraph text from body start up to *stop_anchor*.
+
+    Filters out TOC-like paragraphs (those matching known headings or
+    front-matter keywords) and micro-paragraphs (< 20 chars) that are
+    typically title-page lines or decorative elements.
+    """
     body = soup.find("body")
     if not body:
         return []
@@ -353,6 +375,8 @@ def _paragraphs_before(
     stop_pos = _tag_position(stop_tag, tag_positions)
     if stop_pos is None:
         return []
+
+    _heading_texts = heading_texts or set()
 
     paragraphs: list[str] = []
     for paragraph in body.find_all("p"):
@@ -366,8 +390,15 @@ def _paragraphs_before(
         if _is_toc_paragraph(paragraph):
             continue
         text = _extract_paragraph_text(paragraph)
-        if text:
-            paragraphs.append(text)
+        if not text:
+            continue
+        # Skip micro-paragraphs in front matter (title-page lines, etc.)
+        if len(text) < 20:
+            continue
+        # Skip paragraphs whose text matches a known section heading (TOC entries)
+        if text.lower() in _heading_texts or text.lower() in _FRONT_MATTER_HEADINGS:
+            continue
+        paragraphs.append(text)
     return paragraphs
 
 
@@ -468,7 +499,13 @@ def _is_structural_toc_link(link: Tag) -> bool:
     link_text = " ".join(link.get_text().split()).strip()
     if not link_text:
         return False
-    return not _NUMERIC_LINK_TEXT_RE.fullmatch(link_text)
+    if _NUMERIC_LINK_TEXT_RE.fullmatch(link_text):
+        return False
+    # Filter front-matter headings (CONTENTS, ILLUSTRATIONS, etc.)
+    if link_text.lower() in _FRONT_MATTER_HEADINGS:
+        return False
+    # Filter bare roman numerals (I, II, III — sub-section markers, not chapters)
+    return not _ROMAN_NUMERAL_RE.fullmatch(link_text)
 
 
 def _tag_positions(soup: BeautifulSoup) -> dict[int, int]:
@@ -492,18 +529,43 @@ def _find_gutenberg_bounds(soup: BeautifulSoup, tag_positions: dict[int, int]) -
 
     def _find_marker_parent(marker_re: re.Pattern[str]) -> Tag | None:
         marker_text = soup.find(
-            string=lambda text: isinstance(text, str)
-            and marker_re.search(" ".join(text.split())) is not None
+            string=lambda text: (
+                isinstance(text, str) and marker_re.search(" ".join(text.split())) is not None
+            )
         )
         if marker_text is None:
             return None
         return marker_text.parent if isinstance(marker_text.parent, Tag) else None
+
+    def _subtree_end_pos(tag: Tag | None) -> int | None:
+        if tag is None:
+            return None
+        end_pos = _tag_position(tag, tag_positions)
+        for child in tag.find_all(True):
+            child_pos = _tag_position(child, tag_positions)
+            if child_pos is not None and (end_pos is None or child_pos > end_pos):
+                end_pos = child_pos
+        return end_pos
 
     start_parent = _find_marker_parent(_START_DELIMITER_RE)
     end_parent = _find_marker_parent(_END_DELIMITER_RE)
     start_pos = _tag_position(start_parent, tag_positions) if start_parent else None
     end_pos = _tag_position(end_parent, tag_positions) if end_parent else None
 
+    # Fallback for editions with missing/non-standard delimiter text.
+    header = soup.find(id="pg-header")
+    footer = soup.find(id="pg-footer")
+    header_end_pos = _subtree_end_pos(header if isinstance(header, Tag) else None)
+    footer_start_pos = _tag_position(footer, tag_positions) if isinstance(footer, Tag) else None
+
+    if start_pos is None:
+        start_pos = header_end_pos
+    if end_pos is None:
+        end_pos = footer_start_pos
+
     if start_pos is not None and end_pos is not None and end_pos <= start_pos:
-        return _ContentBounds()
+        if footer_start_pos is not None and footer_start_pos > start_pos:
+            end_pos = footer_start_pos
+        else:
+            end_pos = None
     return _ContentBounds(start_pos=start_pos, end_pos=end_pos)

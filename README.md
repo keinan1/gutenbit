@@ -38,6 +38,36 @@ with Database("gutenberg.db") as db:
 
 Each `<p>` element in the HTML becomes its own chunk. Headings are detected via TOC links and tracked as div1–div4 structural divisions. Search results include the matching paragraph, its structural position, book metadata, character count, and a BM25 relevance score.
 
+## CLI JSON interface
+
+All CLI commands support `--json` and emit a unified envelope:
+
+```json
+{
+  "ok": true,
+  "command": "search",
+  "data": {},
+  "warnings": [],
+  "errors": []
+}
+```
+
+For `search --mode`, ordering semantics are explicit:
+- `ranked`: BM25 rank, then `book_id`, then position
+- `first`: `book_id` ascending, then position ascending
+- `last`: `book_id` descending, then position descending
+
+## CLI ergonomics
+
+- `gutenbit toc <book_id>`: structural summary and numbered sections
+- `gutenbit view <book_id>`: opening excerpt (safe default for large books)
+- `gutenbit view <book_id> -n 0`: full reconstructed text
+- `gutenbit view <book_id> --section <N>`: view by section number from `toc`
+- `gutenbit view <book_id> --position <N>`: view by exact chunk position
+- `gutenbit view ... -n <N>`: unified chunk count for opening/section/position (`-n 0` = all in scope)
+- `gutenbit view ... --preview --chars 120`: concise previews
+- `gutenbit view ... --meta`: include position/section metadata in text output
+
 ## Corpus boundaries
 
 `gutenbit` enforces a curated ingestion policy in `gutenbit/catalog.py`:

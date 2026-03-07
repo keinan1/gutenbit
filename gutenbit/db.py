@@ -90,11 +90,13 @@ WHERE chunks_fts MATCH ?
 """
 
 _DIV_TRAILING_PUNCT_RE = re.compile(r"[.,;:!?]+$")
+_DIV_PUNCT_SPACING_RE = re.compile(r"\s*([.,;:!?])\s*")
 
 
 def _normalize_div_segment(value: str) -> str:
     """Normalize a div path segment for stable matching."""
-    cleaned = " ".join(value.split()).strip()
+    cleaned = " ".join(value.split()).strip().casefold()
+    cleaned = _DIV_PUNCT_SPACING_RE.sub(r"\1", cleaned)
     return _DIV_TRAILING_PUNCT_RE.sub("", cleaned)
 
 
@@ -503,14 +505,12 @@ class Database:
     def _ensure_schema_migrations(self) -> None:
         """Apply lightweight schema migrations for existing databases."""
         columns = {
-            str(row["name"])
-            for row in self._conn.execute("PRAGMA table_info(texts)").fetchall()
+            str(row["name"]) for row in self._conn.execute("PRAGMA table_info(texts)").fetchall()
         }
         if "chunker_version" not in columns:
             with self._conn:
                 self._conn.execute(
-                    "ALTER TABLE texts "
-                    "ADD COLUMN chunker_version INTEGER NOT NULL DEFAULT 1"
+                    "ALTER TABLE texts ADD COLUMN chunker_version INTEGER NOT NULL DEFAULT 1"
                 )
 
     def _has_text(self, book_id: int) -> bool:
