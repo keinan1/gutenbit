@@ -1,12 +1,14 @@
 """Integration tests for chunk storage and FTS5 search."""
 
 import contextlib
+import gzip
 import io
+import json
 
-from gutenbit.catalog import BookRecord
+from gutenbit.catalog import BookRecord, Catalog
 from gutenbit.cli import main as cli_main
 from gutenbit.db import Database, SearchResult
-from gutenbit.html_chunker import chunk_html
+from gutenbit.html_chunker import CHUNKER_VERSION, chunk_html
 
 # ------------------------------------------------------------------
 # Minimal PG-style HTML builder
@@ -19,10 +21,11 @@ _PG_TEMPLATE = """\
 <body>
 <section class="pg-boilerplate pgheader" id="pg-header">
   <h2>The Project Gutenberg eBook of {title}</h2>
+  <div id="pg-start-separator">*** START OF THE PROJECT GUTENBERG EBOOK {title} ***</div>
 </section>
 {body}
 <section class="pg-boilerplate pgfooter" id="pg-footer">
-  <p>End of the Project Gutenberg eBook</p>
+  <div id="pg-end-separator">*** END OF THE PROJECT GUTENBERG EBOOK {title} ***</div>
 </section>
 </body>
 </html>
@@ -96,6 +99,27 @@ first entering a neighbourhood.</p>
 """,
 )
 
+_BOOK3 = BookRecord(
+    id=3,
+    title="A Christmas Carol",
+    authors="Dickens, Charles",
+    language="en",
+    subjects="Ghost stories",
+    locc="PR",
+    bookshelves="Best Books Ever Listings",
+    issued="1998-06-01",
+    type="Text",
+)
+
+_BOOK3_HTML = _make_html(
+    "A Christmas Carol",
+    """
+<p class="toc"><a href="#s1" class="pginternal">STAVE ONE</a></p>
+<h2><a id="s1"></a>STAVE ONE.</h2>
+<p>Marley was dead: to begin with.</p>
+""",
+)
+
 
 def _make_db(tmp_path):
     """Create a Database with test data (bypassing download)."""
@@ -109,7 +133,10 @@ def _run_cli(db_path, *args):
     out = io.StringIO()
     err = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = cli_main(["--db", str(db_path), *args])
+        try:
+            code = cli_main(["--db", str(db_path), *args])
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
     return code, out.getvalue(), err.getvalue()
 
 
@@ -121,18 +148,18 @@ def _run_cli(db_path, *args):
 def test_chunks_stored(tmp_path):
     db = _make_db(tmp_path)
     rows = db._conn.execute("SELECT COUNT(*) as n FROM chunks").fetchone()
-    # Book 1: 2 front_matter (TOC) + heading + 2 para + heading + 1 para = 7
-    # Book 2: 1 front_matter (TOC) + heading + 1 para = 3
-    assert rows["n"] == 10
+    # Book 1: heading + 2 para + heading + 1 para = 5
+    # Book 2: heading + 1 para = 2
+    assert rows["n"] == 7
 
 
 def test_chunks_have_chapters(tmp_path):
     db = _make_db(tmp_path)
     rows = db._conn.execute(
-        "SELECT div2 FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position",
+        "SELECT div1 FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position",
         (1,),
     ).fetchall()
-    chapters = [r["div2"] for r in rows]
+    chapters = [r["div1"] for r in rows]
     assert chapters == ["CHAPTER 1", "CHAPTER 1", "CHAPTER 2"]
 
 
@@ -143,8 +170,6 @@ def test_chunks_have_kinds(tmp_path):
     ).fetchall()
     kinds = [r["kind"] for r in rows]
     assert kinds == [
-        "front_matter",
-        "front_matter",
         "heading",
         "paragraph",
         "paragraph",
@@ -181,7 +206,7 @@ def test_char_count_stored(tmp_path):
 def test_chunks_method_returns_all(tmp_path):
     db = _make_db(tmp_path)
     chunks = db.chunks(1)
-    assert len(chunks) == 7
+    assert len(chunks) == 5
 
 
 def test_chunks_method_filters_by_kind(tmp_path):
@@ -267,7 +292,7 @@ def test_search_result_fields(tmp_path):
     assert r.book_id == 1
     assert r.title == "Moby Dick"
     assert r.authors == "Melville, Herman"
-    assert r.div2 == "CHAPTER 1"
+    assert r.div1 == "CHAPTER 1"
     assert r.kind == "paragraph"
     assert r.char_count > 0
     assert r.score > 0
@@ -334,13 +359,13 @@ def test_search_filter_by_kind(tmp_path):
 def test_search_mode_first_orders_by_position(tmp_path):
     db = _make_db(tmp_path)
     results = db.search("CHAPTER", book_id=1, kind="heading", mode="first", limit=2)
-    assert [r.position for r in results] == [2, 5]
+    assert [r.position for r in results] == [0, 3]
 
 
 def test_search_mode_last_orders_reverse_position(tmp_path):
     db = _make_db(tmp_path)
     results = db.search("CHAPTER", book_id=1, kind="heading", mode="last", limit=2)
-    assert [r.position for r in results] == [5, 2]
+    assert [r.position for r in results] == [3, 0]
 
 
 # ------------------------------------------------------------------
@@ -357,7 +382,63 @@ def test_view_default_shows_structure(tmp_path):
     assert code == 0
     assert "Moby Dick" in out
     assert "CHAPTER 1" in out
-    assert "section(s)" in out
+    assert "Sections" in out
+    assert "Section" in out
+    assert "Paras" in out
+    assert "Chars" in out
+    assert "Est words" in out
+    assert "Est read" in out
+    assert "Position" in out
+    assert "Opening" in out
+    assert "--position" in out
+
+
+def test_view_default_json(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--json")
+    assert code == 0
+
+    payload = json.loads(out)
+    assert payload["book"]["id"] == 1
+    assert payload["book"]["title"] == "Moby Dick"
+    assert payload["book"]["authors"] == "Melville, Herman"
+    assert payload["overview"]["sections_total"] == 2
+    assert payload["overview"]["chunk_counts"]["heading"] == 2
+    assert payload["sections"][0]["section"] == "CHAPTER 1"
+    assert list(payload["sections"][0].keys()) == [
+        "position",
+        "section",
+        "paras",
+        "chars",
+        "est_words",
+        "est_read",
+        "opening_line",
+    ]
+    assert payload["sections"][0]["est_words"] > 0
+    assert payload["sections"][0]["opening_line"].endswith("…")
+    assert len(payload["sections"][0]["opening_line"]) <= 141
+    assert payload["quick_actions"]["search"] == (
+        "gutenbit search <query> --book-id 1 --kind paragraph"
+    )
+    assert payload["quick_actions"]["view_first_position"].startswith(
+        "gutenbit view 1 --position "
+    )
+    assert payload["quick_actions"]["view_first_position_around"].startswith(
+        "gutenbit view 1 --position "
+    )
+
+
+def test_view_json_rejects_selectors(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--json", "--all")
+    assert code == 1
+    assert "--json can only be used with the default summary view." in out
 
 
 def test_view_all_and_missing_book(tmp_path):
@@ -374,24 +455,26 @@ def test_view_all_and_missing_book(tmp_path):
     assert "No text found" in miss_out
 
 
-def test_view_chunk_id_with_neighbors(tmp_path):
+def test_view_position_with_neighbors(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     row = db._conn.execute(
-        "SELECT id FROM chunks WHERE book_id = ? AND kind = 'paragraph' ORDER BY position LIMIT 1",
+        "SELECT position FROM chunks "
+        "WHERE book_id = ? AND kind = 'paragraph' "
+        "ORDER BY position LIMIT 1",
         (1,),
     ).fetchone()
     assert row is not None
-    chunk_id = row["id"]
+    position = row["position"]
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--chunk-id", str(chunk_id), "--around", "1")
+    code, out, _err = _run_cli(db_path, "view", "1", "--position", str(position), "--around", "1")
     assert code == 0
-    assert f"chunk={chunk_id}" in out
-    assert "path=CHAPTER 1" in out
+    assert f"position={position}" in out
+    assert "section=CHAPTER 1" in out
 
 
-def test_view_div_with_filters_and_limit(tmp_path):
+def test_view_section_with_filters_and_limit(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
     db.close()
@@ -400,7 +483,7 @@ def test_view_div_with_filters_and_limit(tmp_path):
         db_path,
         "view",
         "1",
-        "--div",
+        "--section",
         "CHAPTER 1",
         "--kind",
         "paragraph",
@@ -408,9 +491,39 @@ def test_view_div_with_filters_and_limit(tmp_path):
         "1",
     )
     assert code == 0
-    assert "div='CHAPTER 1'" in out
+    assert "section='CHAPTER 1'" in out
     assert "kind=paragraph" in out
     assert "1 chunk(s)" in out
+
+
+def test_view_section_miss_shows_examples(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(
+        db_path,
+        "view",
+        "1",
+        "--section",
+        "BOOK THIRTEEN: 1812 / CHAPTER XII",
+    )
+    assert code == 1
+    assert "No chunks found for book 1 under section 'BOOK THIRTEEN: 1812 / CHAPTER XII'." in out
+    assert "Available sections include:" in out
+    assert "CHAPTER 1" in out
+    assert "CHAPTER 2" in out
+    assert "Tip: run `gutenbit view 1` to list all sections." in out
+
+
+def test_chunks_by_div_ignores_trailing_punctuation(tmp_path):
+    db = Database(tmp_path / "test.db")
+    db._store(_BOOK3, chunk_html(_BOOK3_HTML))
+    rows = db.chunks_by_div(3, "STAVE ONE", kinds=["heading"])
+    db.close()
+
+    assert len(rows) == 1
+    assert rows[0].div1 == "STAVE ONE"
 
 
 def test_view_rejects_multiple_selectors(tmp_path):
@@ -418,6 +531,400 @@ def test_view_rejects_multiple_selectors(tmp_path):
     db_path = db.path
     db.close()
 
-    code, out, _err = _run_cli(db_path, "view", "1", "--all", "--div", "CHAPTER 1")
+    code, out, _err = _run_cli(db_path, "view", "1", "--all", "--section", "CHAPTER 1")
     assert code == 1
     assert "Choose at most one selector" in out
+
+
+def test_search_rejects_negative_limit(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "Ishmael", "-n", "-1")
+    assert code == 1
+    assert "--limit must be >= 0." in out
+
+
+def test_search_rejects_unknown_kind_choice(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, _out, err = _run_cli(db_path, "search", "Ishmael", "--kind", "typo_kind")
+    assert code == 2
+    assert "invalid choice" in err
+
+
+def test_catalog_rejects_non_positive_limit(tmp_path):
+    code, out, _err = _run_cli(tmp_path / "any.db", "catalog", "--author", "Dickens", "-n", "0")
+    assert code == 1
+    assert "--limit must be > 0." in out
+
+
+def test_catalog_output_collapses_embedded_newlines(tmp_path, monkeypatch):
+    record = BookRecord(
+        id=777,
+        title="Title Line One\nTitle Line Two",
+        authors="Author One\nAuthor Two",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda: Catalog([record])))
+
+    code, out, _err = _run_cli(tmp_path / "any.db", "catalog", "--author", "Author", "-n", "1")
+    assert code == 0
+    assert "Author One Author Two" in out
+    assert "Title Line One Title Line Two" in out
+    assert "Author One\nAuthor Two" not in out
+    assert "Title Line One\nTitle Line Two" not in out
+
+
+def test_catalog_fetch_enforces_english_text_policy_and_canonical_ids(monkeypatch):
+    csv_payload = "\n".join(
+        [
+            "Text#,Type,Issued,Title,Language,Authors,Subjects,LoCC,Bookshelves",
+            "100,Text,2000-01-01,Duplicate Work,en,Author Example,,,",
+            "101,Text,2001-01-01,Duplicate Work,en,Author Example,,,",
+            '200,Text,2002-01-01,Bilingual Work,"en, fr",Author Two,,,',
+            "300,Text,2003-01-01,French Work,fr,Auteur Trois,,,",
+            "400,Sound,2004-01-01,Audio Work,en,Narrator Four,,,",
+        ]
+    )
+
+    class _FakeResponse:
+        def __init__(self, content: bytes):
+            self.content = content
+
+        def raise_for_status(self) -> None:
+            return None
+
+    compressed = gzip.compress(csv_payload.encode("utf-8"))
+    monkeypatch.setattr(
+        "gutenbit.catalog.httpx.get",
+        lambda *_args, **_kwargs: _FakeResponse(compressed),
+    )
+
+    catalog = Catalog.fetch()
+    assert [book.id for book in catalog.records] == [100, 200]
+    assert catalog.canonical_id(100) == 100
+    assert catalog.canonical_id(101) == 100
+    alias = catalog.get(101)
+    assert alias is not None
+    assert alias.id == 100
+    assert catalog.get(300) is None
+    assert catalog.get(400) is None
+
+
+def test_books_output_collapses_embedded_newlines(tmp_path):
+    db = Database(tmp_path / "test.db")
+    weird_book = BookRecord(
+        id=99,
+        title="Book\nTitle",
+        authors="Writer\nName",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    html = _make_html("Book Title", "<h2><a id='c1'></a>CHAPTER 1</h2><p>Body.</p>")
+    db._store(weird_book, chunk_html(html))
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "books")
+    assert code == 0
+    assert "Writer Name" in out
+    assert "Book Title" in out
+    assert "Writer\nName" not in out
+    assert "Book\nTitle" not in out
+
+
+def test_database_ingest_enforces_catalog_boundaries(tmp_path, monkeypatch):
+    english = BookRecord(
+        id=10,
+        title="Allowed English Text",
+        authors="Author",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    french = BookRecord(
+        id=11,
+        title="French Text",
+        authors="Auteur",
+        language="fr",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    audio = BookRecord(
+        id=12,
+        title="Audio Track",
+        authors="Narrator",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Sound",
+    )
+
+    html = _make_html("Allowed English Text", "<h2>CHAPTER 1</h2><p>Body text.</p>")
+    seen_downloads: list[int] = []
+
+    def _fake_download(book_id: int) -> str:
+        seen_downloads.append(book_id)
+        return html
+
+    monkeypatch.setattr("gutenbit.db.download_html", _fake_download)
+
+    with Database(tmp_path / "boundaries.db") as db:
+        db.ingest([french, audio, english], delay=0)
+        stored_ids = [book.id for book in db.books()]
+        assert stored_ids == [10]
+        assert db.has_text(10) is True
+        assert db.has_text(11) is False
+        assert db.has_text(12) is False
+
+    assert seen_downloads == [10]
+
+
+def test_has_current_text_detects_stale_chunker_version(tmp_path):
+    db = _make_db(tmp_path)
+    db._conn.execute(
+        "UPDATE texts SET chunker_version = ? WHERE book_id = ?",
+        (CHUNKER_VERSION - 1, 1),
+    )
+    db._conn.commit()
+    assert db.has_text(1) is True
+    assert db.has_current_text(1) is False
+    db.close()
+
+
+def test_ingest_reports_skip_before_downloading(tmp_path, monkeypatch):
+    record = BookRecord(
+        id=888,
+        title="Already There",
+        authors="Test Author",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda: Catalog([record])))
+    monkeypatch.setattr(Database, "has_current_text", lambda _self, _book_id: True)
+    monkeypatch.setattr(Database, "has_text", lambda _self, _book_id: True)
+
+    def _ingest_should_not_run(_self, _books, *, delay=1.0):
+        raise AssertionError("ingest() should not run for already-downloaded books")
+
+    monkeypatch.setattr(Database, "ingest", _ingest_should_not_run)
+
+    code, out, _err = _run_cli(tmp_path / "skip.db", "ingest", "888", "--delay", "0")
+    assert code == 0
+    assert "skipping 888: Already There (already downloaded)" in out
+
+
+def test_ingest_reprocesses_stale_chunker_version(tmp_path, monkeypatch):
+    record = BookRecord(
+        id=889,
+        title="Needs Refresh",
+        authors="Test Author",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda: Catalog([record])))
+    monkeypatch.setattr(Database, "has_current_text", lambda _self, _book_id: False)
+    monkeypatch.setattr(Database, "has_text", lambda _self, _book_id: True)
+
+    ingested_ids: list[int] = []
+
+    def _capture_ingest(_self, books, *, delay=1.0):
+        ingested_ids.extend(book.id for book in books)
+
+    monkeypatch.setattr(Database, "ingest", _capture_ingest)
+
+    code, out, _err = _run_cli(tmp_path / "stale.db", "ingest", "889", "--delay", "0")
+    assert code == 0
+    assert "reprocessing 889: Needs Refresh (chunker updated)" in out
+    assert ingested_ids == [889]
+
+
+def test_ingest_remaps_to_canonical_catalog_id(tmp_path, monkeypatch):
+    canonical = BookRecord(
+        id=100,
+        title="Canonical Work",
+        authors="Example, Author",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    catalog = Catalog([canonical], canonical_id_by_id={100: 100, 101: 100})
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda: catalog))
+    monkeypatch.setattr(Database, "has_current_text", lambda _self, _book_id: False)
+    monkeypatch.setattr(Database, "has_text", lambda _self, _book_id: False)
+
+    ingested_ids: list[int] = []
+
+    def _capture_ingest(_self, books, *, delay=1.0):
+        ingested_ids.extend(book.id for book in books)
+
+    monkeypatch.setattr(Database, "ingest", _capture_ingest)
+
+    code, out, _err = _run_cli(tmp_path / "canonical.db", "ingest", "101", "--delay", "0")
+    assert code == 0
+    assert "remapped 101 -> 100" in out
+    assert ingested_ids == [100]
+
+
+# ------------------------------------------------------------------
+# Validation edge cases
+# ------------------------------------------------------------------
+
+
+def test_view_full_all_rejected(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--full", "--all")
+    assert code == 1
+    assert "--full is redundant with --all" in out
+
+
+def test_view_full_without_selector_rejected(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--full")
+    assert code == 1
+    assert "--full requires a selector" in out
+
+
+def test_search_preview_chars_zero_rejected(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "Ishmael", "--preview-chars", "0")
+    assert code == 1
+    assert "--preview-chars must be > 0" in out
+
+
+def test_search_preview_chars_negative_rejected(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "Ishmael", "--preview-chars", "-5")
+    assert code == 1
+    assert "--preview-chars must be > 0" in out
+
+
+def test_view_preview_chars_zero_rejected(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "view", "1", "--preview-chars", "0")
+    assert code == 1
+    assert "--preview-chars must be > 0" in out
+
+
+def test_ingest_rejects_non_positive_ids(tmp_path):
+    code, out, _err = _run_cli(tmp_path / "any.db", "ingest", "0", "-1")
+    assert code == 1
+    assert "must be positive" in out
+    assert "0" in out
+    assert "-1" in out
+
+
+# ------------------------------------------------------------------
+# JSON output
+# ------------------------------------------------------------------
+
+
+def test_search_json_output(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "Ishmael", "--json")
+    assert code == 0
+    payload = json.loads(out)
+    assert len(payload) >= 1
+    result = payload[0]
+    assert result["book_id"] == 1
+    assert result["title"] == "Moby Dick"
+    assert "Ishmael" in result["content"]
+    assert "rank" in result
+    assert "position" in result
+    assert "section" in result
+    assert "score" in result
+    assert "kind" in result
+    assert "char_count" in result
+
+
+def test_search_json_empty(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "xyzzyplugh", "--json")
+    assert code == 0
+    assert json.loads(out) == []
+
+
+def test_books_json_output(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "books", "--json")
+    assert code == 0
+    payload = json.loads(out)
+    assert len(payload) == 2
+    assert payload[0]["id"] == 1
+    assert payload[0]["title"] == "Moby Dick"
+    assert payload[1]["id"] == 2
+    assert payload[1]["title"] == "Pride and Prejudice"
+
+
+def test_books_json_empty(tmp_path):
+    code, out, _err = _run_cli(tmp_path / "empty.db", "books", "--json")
+    assert code == 0
+    assert json.loads(out) == []
+
+
+def test_books_has_column_headers(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "books")
+    assert code == 0
+    assert "ID" in out
+    assert "AUTHORS" in out
+    assert "TITLE" in out

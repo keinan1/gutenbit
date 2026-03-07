@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import time
 from dataclasses import astuple, dataclass
 from pathlib import Path
 from typing import Literal
 
-from gutenbit.catalog import BookRecord
+from gutenbit.catalog import BookRecord, apply_catalog_policy, is_record_allowed
 from gutenbit.download import download_html
-from gutenbit.html_chunker import Chunk, chunk_html
+from gutenbit.html_chunker import CHUNKER_VERSION, Chunk, chunk_html
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS books (
 CREATE TABLE IF NOT EXISTS texts (
     book_id INTEGER PRIMARY KEY REFERENCES books(id),
     content TEXT NOT NULL,
+    chunker_version INTEGER NOT NULL DEFAULT 1,
     downloaded_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -87,6 +89,14 @@ JOIN books b ON b.id = c.book_id
 WHERE chunks_fts MATCH ?
 """
 
+_DIV_TRAILING_PUNCT_RE = re.compile(r"[.,;:!?]+$")
+
+
+def _normalize_div_segment(value: str) -> str:
+    """Normalize a div path segment for stable matching."""
+    cleaned = " ".join(value.split()).strip()
+    return _DIV_TRAILING_PUNCT_RE.sub("", cleaned)
+
 
 @dataclass(frozen=True, slots=True)
 class SearchResult:
@@ -133,6 +143,7 @@ class Database:
         self._conn = sqlite3.connect(self.path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        self._ensure_schema_migrations()
         self._conn.executescript(_FTS_SETUP)
 
     # ------------------------------------------------------------------
@@ -140,11 +151,37 @@ class Database:
     # ------------------------------------------------------------------
 
     def ingest(self, books: list[BookRecord], *, delay: float = 1.0) -> None:
-        """Download, chunk, and store books. Skips already-downloaded books."""
+        """Download, chunk, and store books.
+
+        Enforces package ingestion boundaries: English text records only, with
+        in-request duplicate work IDs collapsed to a canonical edition.
+        """
+        allowed_books: list[BookRecord] = []
         for book in books:
-            if self._has_text(book.id):
+            if not is_record_allowed(book):
+                logger.info(
+                    "Skipping %s (outside ingest policy: English Text catalog only)",
+                    book.title,
+                )
+                continue
+            allowed_books.append(book)
+
+        canonical_books, canonical_id_by_id = apply_catalog_policy(allowed_books)
+        for book in allowed_books:
+            canonical_id = canonical_id_by_id.get(book.id, book.id)
+            if canonical_id != book.id:
+                logger.info(
+                    "Skipping %s (duplicate work; canonical id=%d)",
+                    book.title,
+                    canonical_id,
+                )
+
+        for book in canonical_books:
+            if self._has_current_text(book.id):
                 logger.info("Skipping %s (already downloaded)", book.title)
                 continue
+            if self._has_text(book.id):
+                logger.info("Reprocessing %s (chunker version updated)", book.title)
             logger.info("Downloading %s (id=%d)", book.title, book.id)
             try:
                 html = download_html(book.id)
@@ -175,12 +212,62 @@ class Database:
         rows = self._conn.execute("SELECT * FROM books ORDER BY id").fetchall()
         return [BookRecord(**row) for row in rows]
 
+    def book(self, book_id: int) -> BookRecord | None:
+        """Return one stored book by Project Gutenberg id."""
+        row = self._conn.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
+        return BookRecord(**row) if row else None
+
     def text(self, book_id: int) -> str | None:
         """Return the clean text for a book, or None if not found."""
         row = self._conn.execute(
             "SELECT content FROM texts WHERE book_id = ?", (book_id,)
         ).fetchone()
         return row["content"] if row else None
+
+    def has_text(self, book_id: int) -> bool:
+        """Return True when a book has already been downloaded and stored."""
+        return self._has_text(book_id)
+
+    def chunk_records(
+        self,
+        book_id: int,
+        *,
+        kinds: list[str] | None = None,
+    ) -> list[ChunkRecord]:
+        """Return all chunks for a book as ChunkRecord objects."""
+        fields = "id, book_id, div1, div2, div3, div4, position, content, kind, char_count"
+        if kinds:
+            placeholders = ",".join("?" * len(kinds))
+            sql = (
+                f"SELECT {fields} FROM chunks"
+                f" WHERE book_id = ? AND kind IN ({placeholders})"
+                f" ORDER BY position"
+            )
+            rows = self._conn.execute(sql, [book_id, *kinds]).fetchall()
+        else:
+            rows = self._conn.execute(
+                f"SELECT {fields} FROM chunks WHERE book_id = ? ORDER BY position",
+                (book_id,),
+            ).fetchall()
+        return [
+            ChunkRecord(
+                chunk_id=r["id"],
+                book_id=r["book_id"],
+                div1=r["div1"],
+                div2=r["div2"],
+                div3=r["div3"],
+                div4=r["div4"],
+                position=r["position"],
+                content=r["content"],
+                kind=r["kind"],
+                char_count=r["char_count"],
+            )
+            for r in rows
+        ]
+
+    def has_current_text(self, book_id: int) -> bool:
+        """Return True when stored text matches the current chunker version."""
+        return self._has_current_text(book_id)
 
     def chunks(
         self,
@@ -218,7 +305,7 @@ class Database:
         ]
 
     def chunk_by_id(self, book_id: int, chunk_id: int) -> ChunkRecord | None:
-        """Return one chunk by chunk id within a specific book."""
+        """Return one chunk by internal row id within a specific book."""
         row = self._conn.execute(
             "SELECT * FROM chunks WHERE book_id = ? AND id = ?",
             (book_id, chunk_id),
@@ -238,9 +325,30 @@ class Database:
             char_count=row["char_count"],
         )
 
-    def chunk_window(self, book_id: int, chunk_id: int, *, around: int = 0) -> list[ChunkRecord]:
-        """Return the selected chunk and N neighbors on each side."""
-        center = self.chunk_by_id(book_id, chunk_id)
+    def chunk_by_position(self, book_id: int, position: int) -> ChunkRecord | None:
+        """Return one chunk by structural position within a specific book."""
+        row = self._conn.execute(
+            "SELECT * FROM chunks WHERE book_id = ? AND position = ?",
+            (book_id, position),
+        ).fetchone()
+        if row is None:
+            return None
+        return ChunkRecord(
+            chunk_id=row["id"],
+            book_id=row["book_id"],
+            div1=row["div1"],
+            div2=row["div2"],
+            div3=row["div3"],
+            div4=row["div4"],
+            position=row["position"],
+            content=row["content"],
+            kind=row["kind"],
+            char_count=row["char_count"],
+        )
+
+    def chunk_window(self, book_id: int, position: int, *, around: int = 0) -> list[ChunkRecord]:
+        """Return the selected position and N neighboring chunks on each side."""
+        center = self.chunk_by_position(book_id, position)
         if center is None:
             return []
         lo = max(0, center.position - around)
@@ -275,8 +383,11 @@ class Database:
         kinds: list[str] | None = None,
         limit: int = 0,
     ) -> list[ChunkRecord]:
-        """Return chunks under an exact division path prefix."""
-        parts = [p.strip() for p in div_path.split("/") if p.strip()]
+        """Return chunks under a division path prefix.
+
+        Matching is exact by segment except that trailing punctuation is ignored.
+        """
+        parts = [_normalize_div_segment(p) for p in div_path.split("/") if p.strip()]
         if len(parts) > 4:
             raise ValueError("div path has too many segments (max 4: div1/div2/div3/div4)")
 
@@ -288,7 +399,11 @@ class Database:
         for row in rows:
             if kinds and row["kind"] not in kinds:
                 continue
-            row_parts = [d for d in [row["div1"], row["div2"], row["div3"], row["div4"]] if d]
+            row_parts = [
+                _normalize_div_segment(d)
+                for d in [row["div1"], row["div2"], row["div3"], row["div4"]]
+                if d
+            ]
             if parts and row_parts[: len(parts)] != parts:
                 continue
             out.append(
@@ -385,8 +500,28 @@ class Database:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _ensure_schema_migrations(self) -> None:
+        """Apply lightweight schema migrations for existing databases."""
+        columns = {
+            str(row["name"])
+            for row in self._conn.execute("PRAGMA table_info(texts)").fetchall()
+        }
+        if "chunker_version" not in columns:
+            with self._conn:
+                self._conn.execute(
+                    "ALTER TABLE texts "
+                    "ADD COLUMN chunker_version INTEGER NOT NULL DEFAULT 1"
+                )
+
     def _has_text(self, book_id: int) -> bool:
         row = self._conn.execute("SELECT 1 FROM texts WHERE book_id = ?", (book_id,)).fetchone()
+        return row is not None
+
+    def _has_current_text(self, book_id: int) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM texts WHERE book_id = ? AND chunker_version = ?",
+            (book_id, CHUNKER_VERSION),
+        ).fetchone()
         return row is not None
 
     def _store(self, book: BookRecord, chunks: list[Chunk]) -> None:
@@ -400,8 +535,9 @@ class Database:
                 astuple(book),
             )
             self._conn.execute(
-                "INSERT OR REPLACE INTO texts (book_id, content) VALUES (?, ?)",
-                (book.id, text),
+                "INSERT OR REPLACE INTO texts (book_id, content, chunker_version) "
+                "VALUES (?, ?, ?)",
+                (book.id, text, CHUNKER_VERSION),
             )
             self._conn.execute("DELETE FROM chunks WHERE book_id = ?", (book.id,))
             self._conn.executemany(

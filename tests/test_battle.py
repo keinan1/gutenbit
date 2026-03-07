@@ -9,6 +9,7 @@ network access, so they are gated behind ``-m network``::
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 
@@ -193,6 +194,15 @@ class TestCrimeAndPunishment:
         # Total: ~48 headings (translator's preface + title + 6 parts + epilogue + ~41 chapters)
         assert len(headings) >= 40
 
+    def test_no_toc_labels_as_paragraphs(self, chunks: list[Chunk]):
+        paragraphs = [c.content.strip() for c in chunks if c.kind == "paragraph"]
+        toc_like = [
+            text
+            for text in paragraphs
+            if re.fullmatch(r"(?:PART|CHAPTER)\.?\s+[IVXLCDM0-9]+\.?", text, re.IGNORECASE)
+        ]
+        assert toc_like == []
+
 
 class TestChristmasCarol:
     """PG 46 — STAVE headings."""
@@ -211,10 +221,10 @@ class TestChristmasCarol:
         for label in ["ONE", "TWO", "THREE", "FOUR", "FIVE"]:
             assert any(label in s for s in stave_texts), f"Missing STAVE {label}"
 
-    def test_staves_as_div2(self, chunks: list[Chunk]):
+    def test_staves_as_div1(self, chunks: list[Chunk]):
         headings = _headings(chunks)
         for h in headings:
-            assert h.div2.startswith("STAVE"), f"Expected STAVE in div2, got {h.div2!r}"
+            assert h.div1.startswith("STAVE"), f"Expected STAVE in div1, got {h.div1!r}"
 
     def test_paragraphs_have_content(self, chunks: list[Chunk]):
         paragraphs = [c for c in chunks if c.kind == "paragraph"]
@@ -243,6 +253,15 @@ class TestNicholasNickleby:
         headings = _headings(chunks)
         assert any("PREFACE" in h.content.upper() for h in headings)
 
+    def test_no_toc_labels_as_paragraphs(self, chunks: list[Chunk]):
+        paragraphs = [c.content.strip() for c in chunks if c.kind == "paragraph"]
+        toc_like = [
+            text
+            for text in paragraphs
+            if re.fullmatch(r"CHAPTER\.?\s+[IVXLCDM0-9]+\.?", text, re.IGNORECASE)
+        ]
+        assert toc_like == []
+
 
 class TestOliverTwist:
     """PG 730 — Chapters with long descriptive titles."""
@@ -265,10 +284,10 @@ class TestOliverTwist:
         assert "CHAPTER I" in ch1.content
         assert "OLIVER TWIST" in ch1.content.upper()
 
-    def test_no_front_matter(self, chunks: list[Chunk]):
-        # Oliver Twist starts directly with chapters, no front matter
+    def test_chunk_kinds_are_simplified(self, chunks: list[Chunk]):
+        # Simplified chunk kinds: heading + paragraph only.
         kinds = _kind_counts(chunks)
-        assert kinds.get("front_matter", 0) == 0
+        assert set(kinds) <= {"heading", "paragraph"}
 
 
 class TestPrideAndPrejudice:
@@ -287,9 +306,15 @@ class TestPrideAndPrejudice:
         # Should have ~61 chapter headings (some editions have preface/illustrations list)
         assert len(chapter_headings) >= 55
 
-    def test_has_front_matter(self, chunks: list[Chunk]):
+    def test_chunk_kinds_are_simplified(self, chunks: list[Chunk]):
         kinds = _kind_counts(chunks)
-        assert kinds.get("front_matter", 0) >= 1
+        assert set(kinds) <= {"heading", "paragraph"}
+
+    def test_dropcap_letters_preserved(self, chunks: list[Chunk]):
+        paragraphs = [c.content for c in chunks if c.kind == "paragraph"]
+        matches = [p for p in paragraphs if "BENNET was among the earliest" in p]
+        assert matches
+        assert any("MR. BENNET" in p.upper() for p in matches)
 
 
 class TestLockeSecondTreatise:
@@ -312,11 +337,11 @@ class TestLockeSecondTreatise:
         chapter_headings = [h for h in headings if h.content.startswith("CHAPTER.")]
         assert len(chapter_headings) >= 15
 
-    def test_chapters_as_div2(self, chunks: list[Chunk]):
+    def test_chapters_as_div1(self, chunks: list[Chunk]):
         headings = _headings(chunks)
-        chapter_headings = [h for h in headings if h.content.startswith("CHAPTER.")]
+        chapter_headings = [h for h in headings if h.content.startswith("CHAPTER")]
         for h in chapter_headings:
-            assert h.div2.startswith("CHAPTER."), f"Expected div2 to be CHAPTER, got {h.div2!r}"
+            assert h.div1.startswith("CHAPTER"), f"Expected div1 to be CHAPTER, got {h.div1!r}"
 
 
 class TestSherlockHolmes:
@@ -341,14 +366,14 @@ class TestSherlockHolmes:
         assert any("SPECKLED BAND" in t.upper() for t in titles)
         assert any("COPPER BEECHES" in t.upper() for t in titles)
 
-    def test_stories_as_div2(self, chunks: list[Chunk]):
+    def test_stories_as_div1(self, chunks: list[Chunk]):
         headings = _headings(chunks)
         for h in headings:
-            assert h.div2, f"Expected div2 for story heading {h.content!r}"
+            assert h.div1, f"Expected div1 for story heading {h.content!r}"
 
-    def test_has_front_matter(self, chunks: list[Chunk]):
+    def test_chunk_kinds_are_simplified(self, chunks: list[Chunk]):
         kinds = _kind_counts(chunks)
-        assert kinds.get("front_matter", 0) >= 1
+        assert set(kinds) <= {"heading", "paragraph"}
 
     def test_holmes_watson_present(self, chunks: list[Chunk]):
         paragraphs = [c for c in chunks if c.kind == "paragraph"]
@@ -394,9 +419,9 @@ class TestBlackstonesCommentaries:
         sections = [h for h in headings if h.content.startswith("Section the")]
         assert len(sections) == 4
 
-    def test_has_front_matter(self, chunks: list[Chunk]):
+    def test_chunk_kinds_are_simplified(self, chunks: list[Chunk]):
         kinds = _kind_counts(chunks)
-        assert kinds.get("front_matter", 0) >= 1
+        assert set(kinds) <= {"heading", "paragraph"}
 
     def test_has_paragraphs(self, chunks: list[Chunk]):
         kinds = _kind_counts(chunks)
@@ -406,6 +431,40 @@ class TestBlackstonesCommentaries:
         paragraphs = [c for c in chunks if c.kind == "paragraph"]
         all_text = " ".join(p.content for p in paragraphs[:200])
         assert "law" in all_text.lower()
+
+
+class TestHardTimes:
+    """PG 786 — regression for TOC ordering and delimiter-bounded content."""
+
+    @pytest.fixture(scope="class")
+    def chunks(self) -> list[Chunk]:
+        return _download_and_chunk(786)
+
+    def test_book_second_chapter_iv_precedes_chapter_v(self, chunks: list[Chunk]):
+        headings = [
+            h.content
+            for h in _headings(chunks)
+            if h.div1 == "BOOK THE SECOND" and h.div2.startswith("CHAPTER")
+        ]
+        assert "CHAPTER IV" in headings
+        assert "CHAPTER V" in headings
+        assert headings.index("CHAPTER IV") < headings.index("CHAPTER V")
+
+    def test_excludes_pg_license_heading(self, chunks: list[Chunk]):
+        heading_text = [h.content for h in _headings(chunks)]
+        assert not any("PROJECT GUTENBERG" in text.upper() for text in heading_text)
+
+    def test_no_spurious_title_page_section_heading(self, chunks: list[Chunk]):
+        heading_text = [h.content for h in _headings(chunks)]
+        assert not any("HARD TIMES AND REPRINTED PIECES" in text.upper() for text in heading_text)
+
+    def test_chapter_i_present_in_all_three_books(self, chunks: list[Chunk]):
+        chapter_one_books = {
+            h.div1
+            for h in _headings(chunks)
+            if h.content == "CHAPTER I" and h.div1.startswith("BOOK")
+        }
+        assert chapter_one_books == {"BOOK THE FIRST", "BOOK THE SECOND", "BOOK THE THIRD"}
 
 
 # ===================================================================
@@ -520,34 +579,43 @@ class TestCLICommands:
         assert result.returncode == 0
         assert "A Christmas Carol" in result.stdout
         assert "STAVE" in result.stdout
-        assert "section(s)" in result.stdout
+        assert "Sections" in result.stdout
+        assert "Section" in result.stdout
+        assert "Paras" in result.stdout
+        assert "Chars" in result.stdout
+        assert "Est words" in result.stdout
+        assert "Est read" in result.stdout
+        assert "Position" in result.stdout
+        assert "Opening" in result.stdout
+        assert "--position" in result.stdout
+        assert "\n    section=" not in result.stdout
 
-    def test_cli_view_div_kind_filter(self, db_path: str):
-        result = _run_cli("view", "46", "--div", "STAVE ONE", "--kind", "heading", db=db_path)
+    def test_cli_view_section_kind_filter(self, db_path: str):
+        result = _run_cli("view", "46", "--section", "STAVE ONE", "--kind", "heading", db=db_path)
         assert result.returncode == 0
         assert "kind=heading" in result.stdout
-        assert "path=STAVE ONE" in result.stdout
+        assert "section=STAVE ONE" in result.stdout
 
-    def test_cli_view_div_limit(self, db_path: str):
-        result = _run_cli("view", "46", "--div", "STAVE ONE", "-n", "3", db=db_path)
+    def test_cli_view_section_limit(self, db_path: str):
+        result = _run_cli("view", "46", "--section", "STAVE ONE", "-n", "3", db=db_path)
         assert result.returncode == 0
         assert "3 chunk(s)" in result.stdout
 
-    def test_cli_view_chunk_id(self, db_path: str):
+    def test_cli_view_position(self, db_path: str):
         with Database(db_path) as db:
             row = db._conn.execute(
-                "SELECT id FROM chunks "
+                "SELECT position FROM chunks "
                 "WHERE book_id = ? AND kind = 'heading' "
                 "ORDER BY position LIMIT 1",
                 (46,),
             ).fetchone()
         assert row is not None
-        chunk_id = row["id"]
+        position = row["position"]
 
-        result = _run_cli("view", "46", "--chunk-id", str(chunk_id), db=db_path)
+        result = _run_cli("view", "46", "--position", str(position), db=db_path)
         assert result.returncode == 0
-        assert f"chunk={chunk_id}" in result.stdout
-        assert "path=STAVE ONE" in result.stdout
+        assert f"position={position}" in result.stdout
+        assert "section=STAVE ONE" in result.stdout
 
     def test_cli_search(self, db_path: str):
         result = _run_cli("search", "Scrooge", "--book-id", "46", db=db_path)
@@ -569,7 +637,7 @@ class TestCLICommands:
         result = _run_cli("view", "7370", db=db_path)
         assert result.returncode == 0
         assert "CHAPTER." in result.stdout
-        assert "19 section(s)" in result.stdout
+        assert "Sections" in result.stdout
 
     def test_cli_view_all(self, db_path: str):
         result = _run_cli("view", "46", "--all", db=db_path)
