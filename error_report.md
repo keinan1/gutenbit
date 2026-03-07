@@ -1,411 +1,359 @@
-# gutenbit CLI Battle Test Error Report
+# Error Report: CLI Battle Test (Dickens Corpus, 16 Novels)
 
-Date: March 6, 2026 (America/New_York)
-Repo: `/Users/keinan/Code/gutenbit`
-Tester: Codex (GPT-5)
-Requested execution style: `uv run gutenbit`
-
-## 1. Scope and Method
-
-This report summarizes a live, end-to-end CLI battle test focused on:
-- Ease of use
-- Interpretability
-- Clarity and consistency
-- Ergonomics for both humans and agents
-- Perfect-path and edge-case behavior
-
-### Corpus under test (major Dickens novels)
-
-Ingested and tested by PG ID:
-- `98` A Tale of Two Cities
-- `564` The Mystery of Edwin Drood
-- `580` The Pickwick Papers
-- `700` The Old Curiosity Shop
-- `730` Oliver Twist
-- `766` David Copperfield
-- `786` Hard Times
-- `821` Dombey and Son
-- `883` Our Mutual Friend
-- `917` Barnaby Rudge
-- `963` Little Dorrit
-- `967` Nicholas Nickleby
-- `968` Martin Chuzzlewit
-- `1023` Bleak House
-- `1400` Great Expectations
-
-Database used for primary corpus test:
-- `/tmp/gutenbit_dickens_major.db`
-
-### Commands exercised
-
-- Help: top-level + all subcommands
-- `catalog`, `ingest`, `books`, `view`, `search`, `delete`
-- `view` modes: default, `--json`, `--all`, `--position`, `--section`, `--full`, `--kind`, `--limit`, `--around`
-- `search` modes: ranked, first, last, phrase, kind filter, author/title/book filters
-- Error-path tests: invalid selector combos, malformed FTS query, invalid limits, missing records, empty DB
-
-### Automated validation completed
-
-- Full per-book smoke matrix (`view` summary + section + position + scoped search) across all 15 novels: **15/15 pass**
-- Network CLI test suite subset: `18 passed`
+**Date:** 2026-03-07
+**Branch:** `claude/test-cli-functionality-roCc8`
+**Scope:** CLI functionality, HTML chunker output, end-to-end integrity
 
 ---
 
-## 2. Executive Summary
+## Test Corpus
 
-The CLI is broadly functional and well-structured. Core workflows (ingest/list/view/search/delete) are stable across all major Dickens novels.
+| # | Book | PG ID | Sections | Paras | Chars | Status |
+|---|------|-------|----------|-------|-------|--------|
+| 1 | A Christmas Carol | 46 | 5 | 712 | 156,377 | Clean |
+| 2 | A Tale of Two Cities | 98 | 48 | 3,259 | 747,817 | Clean |
+| 3 | The Mystery of Edwin Drood | 564 | 23 | 2,496 | 533,199 | Clean |
+| 4 | The Pickwick Papers | 580 | 58 | 7,950 | 1,721,093 | Minor: CONTENTS leak |
+| 5 | The Old Curiosity Shop | 700 | 73 | 4,021 | 1,200,250 | Minor: CONTENTS leak |
+| 6 | Oliver Twist | 730 | 53 | 3,834 | 879,444 | Clean |
+| 7 | David Copperfield | 766 | 67 | 7,114 | 1,914,154 | Minor: display issue |
+| 8 | Hard Times | 786 | 41 | 2,308 | 568,010 | Minor: front matter noise |
+| 9 | Dombey and Son | 821 | 64 | 7,247 | 1,973,321 | Clean |
+| 10 | Our Mutual Friend | 883 | 71 | 8,412 | 1,788,623 | Clean |
+| 11 | Barnaby Rudge | 917 | 79 | 4,614 | 1,406,592 | **BROKEN: 4 chapters missing** |
+| 12 | Little Dorrit | 963 | 73 | 6,648 | 1,860,660 | Minor: CONTENTS leak |
+| 13 | Nicholas Nickleby | 967 | 66 | 7,325 | 1,830,536 | Minor: CONTENTS leak |
+| 14 | Martin Chuzzlewit | 968 | 56 | 7,160 | 1,862,706 | Minor: CONTENTS leak |
+| 15 | Bleak House | 1023 | 68 | 7,170 | 1,921,288 | Clean |
+| 16 | Great Expectations | 1400 | 59 | 3,833 | 984,695 | Clean |
 
-However, several high-value issues and ergonomics debts were identified:
-- ~~One **high-severity structural correctness issue** in chunking/section progression on `Hard Times`.~~
-  - Resolved on March 7, 2026 (delimiter-bounded parsing + document-order TOC section sorting + stale-ingest auto-refresh).
-- ~~Several **medium-severity usability/agentic** issues around section matching strictness, option validation consistency, and mode semantics clarity.~~
-  - Resolved on March 7, 2026 (`--section` normalization improvements + strict `--preview-chars` validation + explicit `search --mode` semantics in help/docs).
-- Some **performance/documentation debt** around catalog fetch behavior and dedupe expectations.
+### Commands Exercised
+
+- Help: top-level + all 6 subcommands
+- `catalog`: author/title/subject/language filters, combined filters, no-results, no-filters, JSON
+- `ingest`: single/batch, re-ingest (skip), invalid IDs, JSON
+- `books`: text + JSON, empty DB
+- `view`: default summary, `--all`, `--position`, `--section`, `--around`, `--full`, `--kind`, `--json`
+- `search`: ranked/first/last modes, `--phrase`, `--book-id`, `--author`, `--kind`, `--full`, `--json`
+- `delete`: valid/invalid/already-deleted, JSON
+- Edge cases: conflicting selectors, empty query, non-existent sections, out-of-range positions
 
 ---
 
-## 3. Findings (Prioritized)
+## Critical Issues
 
-## ~~F-001: Structural sectioning anomaly and end-matter bleed on `Hard Times` (PG 786)~~
+### F-001: Barnaby Rudge (PG 917) — 4 chapters silently dropped
 
-Status: **Resolved (March 7, 2026)**  
-Resolution summary:
-- Parsing is now bounded by Gutenberg START/END delimiters.
-- TOC-derived sections are sorted by body document order (fixes `CHAPTER IV`/`CHAPTER V` mis-order).
-- Non-structural TOC links (citation/footnote/page-number) are filtered out.
-- Fallback heading-scan parsing restores missing `CHAPTER I` sections in `BOOK THE FIRST/SECOND/THIRD` for PG 786.
-- Spurious position-0 heading (`Hard Times and Reprinted Pieces [0`) no longer appears as a section.
-- Legacy chunk-kind complexity was simplified to `heading`/`paragraph`.
-- Existing stale ingests are now auto-reprocessed via chunker-version tracking.
+**Severity:** High
+**Component:** `gutenbit/html_chunker.py:278`, `_find_next_heading()`
+**Type:** Silent data loss
 
-Severity: **High**  
-Type: Functional correctness / data quality  
-Area: HTML chunking and section traversal
+#### Symptom
 
-### Impact
+Chapters 1, 6, 8, and 13 are completely absent from the chunked output.
+Their paragraph content is absorbed into the preceding section:
 
-- Section/chapter order appears inconsistent (e.g., `CHAPTER V` before `CHAPTER IV` within `BOOK THE SECOND` in output ordering).
-- `end_matter` appears to begin mid-flow and then normal chapter flow resumes, which causes potential mislabeling and confusing navigation/search context.
-- This affects trust in structural metadata, which is central to `view --section` and semantic retrieval.
+- **Chapter 1** merged into PREFACE — PREFACE balloons to 118 paragraphs /
+  39,978 chars (should be ~5 paragraphs about ravens)
+- **Chapter 6** merged into Chapter 5
+- **Chapter 8** merged into Chapter 7
+- **Chapter 13** merged into Chapter 12
 
-### Evidence
+#### Root Cause
 
-Observed chunk-kind totals for `786`:
-- `front_matter: 87`
-- `heading: 34`
-- `paragraph: 3714`
-- `end_matter: 1988`
+`_find_next_heading()` uses `find_all_next(limit=10)` when scanning from a
+body anchor to locate its `<h2>` heading. In this illustrated edition, each
+chapter boundary has 11 intervening elements between anchor and heading:
 
-Observed boundary behavior near transition:
-- `position=2312` is end-matter note
-- `position=2313` resumes with heading `CHAPTER IV`
-
-### Reproduction
-
-```bash
-DB=/tmp/gutenbit_dickens_major.db
-uv run gutenbit --db "$DB" view 786
-uv run gutenbit --db "$DB" view 786 --section "BOOK THE SECOND" --kind heading --full
-uv run gutenbit --db "$DB" view 786 --position 2312 --around 3 --full
+```html
+<a id="link2HCH0001">           <!-- body anchor -->
+  <div>                          <!-- 0 -->
+  <br>                           <!-- 1 -->
+  <br>                           <!-- 2 -->
+  <br>                           <!-- 3 -->
+  <br>                           <!-- 4 -->
+  <div class="fig">              <!-- 5 (illustration wrapper) -->
+  <img>                          <!-- 6 (illustration image) -->
+  <br>                           <!-- 7 -->
+  <h5> (illustration caption)   <!-- 8 -->
+  <a>                            <!-- 9 -->
+  <i>                            <!-- 10 — limit reached, search stops -->
+  <h2>Chapter 1</h2>            <!-- 11 — MISSED -->
 ```
 
-### Expected
+This pattern is identical for all four missing chapters. The `<h2>` heading
+is exactly one element past the search limit.
 
-- Stable heading progression consistent with reading order within each book section.
-- End matter starts only when genuinely entering terminal back matter, and does not interleave with later body chapters.
-
-### Actual
-
-- Chapter progression appears non-sequential in rendered section listing.
-- End matter gets marked, then body-like chapter content continues afterward.
-
-### Likely root causes
-
-- TOC links are iterated in source order without explicit body-anchor sort by document position.
-- End-matter flag is sticky per section once regex triggers, potentially too coarse for noisy/annotated PG HTML.
-
-Code references:
-- Section parse/build path: [/Users/keinan/Code/gutenbit/gutenbit/html_chunker.py:142](/Users/keinan/Code/gutenbit/gutenbit/html_chunker.py:142)
-- Section iteration and paragraph collection: [/Users/keinan/Code/gutenbit/gutenbit/html_chunker.py:112](/Users/keinan/Code/gutenbit/gutenbit/html_chunker.py:112)
-- End-matter trigger and sticky flag: [/Users/keinan/Code/gutenbit/gutenbit/html_chunker.py:126](/Users/keinan/Code/gutenbit/gutenbit/html_chunker.py:126)
-
-### Recommendation
-
-- Sort parsed sections by body-document position before chunking.
-- Replace one-way per-section `in_end_matter` toggling with stronger boundary detection (anchor/heading-aware end-matter segmentation).
-- Add regression tests specifically for PG 786 ordering and boundary transitions.
-
-### Acceptance criteria
-
-- `view 786 --section "BOOK THE SECOND" --kind heading --full` yields monotonic chapter order.
-- End-matter chunks appear only in terminal sections (or clearly isolated sections), not interleaved before later chapter headings.
-
----
-
-## ~~F-002: `view --section` matching is too strict (case and punctuation-spacing fragility)~~
-
-Status: **Resolved (March 7, 2026)**  
-Resolution summary:
-- `view --section` matching is now case-insensitive (`casefold()` normalization).
-- Punctuation-spacing variants are normalized (e.g., `CHAPTER I.The` equals `CHAPTER I. The`).
-- Trailing punctuation-insensitive behavior remains intact.
-
-Severity: **Medium**  
-Type: UX / ergonomics / agent compatibility  
-Area: Section path matching
-
-### Impact
-
-- Humans and agents must match exact case and punctuation spacing, which is brittle.
-- Minor formatting differences produce hard failures even when intent is clear.
-
-### Reproduction
+#### Verification
 
 ```bash
-DB=/tmp/gutenbit_dickens_major.db
-# Works
-uv run gutenbit --db "$DB" view 98 --section "Book the First—Recalled to Life/CHAPTER I.The Period" -n 1
-
-# Fails (spacing variation)
-uv run gutenbit --db "$DB" view 98 --section "Book the First—Recalled to Life/CHAPTER I. The Period" -n 1
-
-# Fails (case variation)
-uv run gutenbit --db "$DB" view 98 --section "book the first—recalled to life/chapter i.the period" -n 1
+uv run gutenbit --db test.db ingest 917 --delay 0
+uv run gutenbit --db test.db view 917
+# Observe: PREFACE → Chapter 2 (no Chapter 1)
+#          Chapter 5 → Chapter 7 (no Chapter 6)
+#          Chapter 7 → Chapter 9 (no Chapter 8)
+#          Chapter 12 → Chapter 14 (no Chapter 13)
 ```
 
-### Expected
+#### Impact
 
-- Case-insensitive matching with normalized punctuation/whitespace variants.
+~15,000 words of novel text silently miscategorized. Users and agents cannot
+navigate to these chapters by name. Search results for content in these
+chapters show the wrong section metadata.
 
-### Actual
+#### Recommended Fix
 
-- Exact-ish segment matching only; trailing punctuation normalized, but casing and internal punctuation spacing are not.
+Increase the `limit` in `_find_next_heading()`. Options:
 
-### Likely root cause
-
-- Segment normalization strips only trailing punctuation and whitespace collapse.
-
-Code references:
-- Normalization: [/Users/keinan/Code/gutenbit/gutenbit/db.py:94](/Users/keinan/Code/gutenbit/gutenbit/db.py:94)
-- Section compare logic: [/Users/keinan/Code/gutenbit/gutenbit/db.py:345](/Users/keinan/Code/gutenbit/gutenbit/db.py:345)
-
-### Recommendation
-
-- Add `casefold()` to segment normalization.
-- Normalize punctuation spacing (`CHAPTER I. The` vs `CHAPTER I.The`) for matching purposes.
-- Consider `--section-fuzzy` or best-match suggestions for near misses.
+1. **Simple:** Raise limit from 10 to 25 (covers the 11-element pattern with margin)
+2. **Robust:** Skip non-content elements (`<br>`, `<img>`, decorative `<div>`)
+   when counting toward the limit, only counting structural tags
+3. **Strongest:** Remove the limit entirely and scan until the next heading or
+   end of document, with a maximum distance check based on document position
+   rather than element count
 
 ---
 
-## ~~F-003: Inconsistent option validation (`--preview-chars` silently coerced)~~
+### F-002: Pre-existing test failure — Sherlock Holmes 18 headings (expected 12)
 
-Status: **Resolved (March 7, 2026)**  
-Resolution summary:
-- Non-positive `--preview-chars` is now rejected consistently for both `search` and `view` with exit code `1`.
+**Severity:** Medium
+**Component:** `gutenbit/html_chunker.py`, `_is_structural_toc_link()` / hierarchy
+**Test:** `tests/test_battle.py:359`
 
-Severity: **Medium**  
-Type: UX consistency / agent safety  
-Area: CLI arg validation
+#### Symptom
 
-### Impact
+`TestSherlockHolmes.test_twelve_stories` expects 12 headings but gets 18.
 
-- Invalid values for `--preview-chars` do not error; they silently default to 140.
-- Other numeric options (`--limit`, `--around`) correctly hard-fail for invalid negatives.
-- Silent coercion is risky for automated callers and obscures mistakes.
+#### Root Cause
 
-### Reproduction
+The 6 extra headings are:
 
-```bash
-DB=/tmp/gutenbit_dickens_major.db
-uv run gutenbit --db "$DB" search "door" --book-id 98 -n 1 --preview-chars -5
-uv run gutenbit --db "$DB" view 98 --position 434 --preview-chars -5
+| # | Heading | Why it leaks through |
+|---|---------|---------------------|
+| 1 | `ADVENTURES OF SHERLOCK HOLMES` | Book title — treated as a section |
+| 2 | `CONTENTS` | Front matter heading — not filtered |
+| 3 | `ILLUSTRATIONS` | Front matter heading — not filtered |
+| 4 | `I` | Roman numeral sub-section of "A Scandal in Bohemia" |
+| 5 | `II` | Roman numeral sub-section of "A Scandal in Bohemia" |
+| 6 | `III` | Roman numeral sub-section of "A Scandal in Bohemia" |
+
+`_is_structural_toc_link()` only blocks citations, page numbers, footnotes,
+and purely numeric text. It does not filter:
+- Front-matter headings (CONTENTS, ILLUSTRATIONS)
+- Book-level title headings
+- Roman-numeral sub-sections within stories
+
+#### Actual Chunker Output
+
+```
+ADVENTURES OF SHERLOCK HOLMES          ← spurious (title)
+CONTENTS                               ← spurious (front matter)
+ILLUSTRATIONS                          ← spurious (front matter)
+ADVENTURES OF SHERLOCK HOLMES A SCANDAL IN BOHEMIA
+I                                      ← spurious (sub-section)
+II                                     ← spurious (sub-section)
+III                                    ← spurious (sub-section)
+THE RED-HEADED LEAGUE
+A CASE OF IDENTITY
+THE BOSCOMBE VALLEY MYSTERY
+THE FIVE ORANGE PIPS
+THE MAN WITH THE TWISTED LIP
+THE ADVENTURE OF THE BLUE CARBUNCLE
+THE ADVENTURE OF THE SPECKLED BAND
+THE ADVENTURE OF THE ENGINEER'S THUMB
+THE ADVENTURE OF THE NOBLE BACHELOR
+THE ADVENTURE OF THE BERYL CORONET
+THE ADVENTURE OF THE COPPER BEECHES
 ```
 
-### Expected
+#### Recommended Fix
 
-- Reject non-positive `--preview-chars` with explicit error and exit code 1 (or at least warn).
-
-### Actual
-
-- Command succeeds, defaulting preview length silently.
-
-### Likely root cause
-
-- Manual fallback to default when `<= 0`.
-
-Code references:
-- Search path: [/Users/keinan/Code/gutenbit/gutenbit/cli.py:448](/Users/keinan/Code/gutenbit/gutenbit/cli.py:448)
-- View path: [/Users/keinan/Code/gutenbit/gutenbit/cli.py:818](/Users/keinan/Code/gutenbit/gutenbit/cli.py:818)
-
-### Recommendation
-
-- Use argument validators (or explicit checks) to enforce `preview_chars > 0`.
-- Keep behavior consistent with `--limit`/`--around` validation style.
+1. Filter TOC links whose heading text matches known non-content patterns
+   (CONTENTS, ILLUSTRATIONS, TABLE OF CONTENTS)
+2. Handle roman numeral sub-sections by classifying them as sub-divisions
+   (div2) rather than top-level sections, or by detecting when a short
+   heading (I, II, III, IV, etc.) follows a longer heading and treating
+   it as a child
 
 ---
 
-## ~~F-004: `search --mode first/last` semantics under-specified for multi-book corpora~~
+## Moderate Issues
 
-Status: **Resolved (March 7, 2026)**  
-Resolution summary:
-- CLI help/examples now explicitly document ordering semantics:
-  - `ranked`: BM25 rank, then `book_id`, then position
-  - `first`: `book_id` ascending, then position ascending
-  - `last`: `book_id` descending, then position descending
-- README now mirrors these mode semantics for discoverability.
+### F-003: CONTENTS / front matter text leaking into paragraph chunks
 
-Severity: **Medium**  
-Type: API clarity / ergonomics  
-Area: Search ordering semantics
+**Severity:** Moderate
+**Component:** `gutenbit/html_chunker.py:432`, `_is_toc_paragraph()`
+**Affected:** PG 580, 700, 967, 968, 963
 
-### Impact
+#### Symptom
 
-- Users may assume global first/last hit by relevance or document chronology.
-- Actual ordering is by `book_id` and position (plus rank), so results depend on corpus composition.
+The `(unsectioned opening)` section contains "CONTENTS" as its opening text.
+In Pickwick Papers (580), this section has 3 paragraphs totaling 11,235 chars
+of table-of-contents markup stored as regular paragraph chunks.
 
-### Reproduction
+#### Root Cause
 
-```bash
-DB=/tmp/gutenbit_dickens_major.db
-uv run gutenbit --db "$DB" search "door" --mode first
-uv run gutenbit --db "$DB" search "door" --mode last
+`_is_toc_paragraph()` only identifies a paragraph as TOC content if it
+contains an `<a class="pginternal">` link. In these editions, CONTENTS
+entries use plain text without pginternal links, so they pass through as
+regular content paragraphs.
+
+```python
+def _is_toc_paragraph(paragraph: Tag) -> bool:
+    if paragraph.find("a", class_="pginternal") is None:
+        return False  # ← Plain-text TOC entries escape here
 ```
 
-### Expected
+#### Impact
 
-- Semantics explicitly documented and predictable, or mode names that reflect behavior more clearly.
+- Pollutes search results (searching for a chapter title may surface its
+  TOC entry as a separate hit)
+- Inflates character counts for the unsectioned opening section
 
-### Actual
+#### Recommended Fix
 
-- Behavior is deterministic but non-obvious without reading SQL ordering logic.
-
-### Likely root cause
-
-- SQL ordering for modes is currently implementation-centric.
-
-Code reference:
-- Ordering logic: [/Users/keinan/Code/gutenbit/gutenbit/db.py:420](/Users/keinan/Code/gutenbit/gutenbit/db.py:420)
-
-### Recommendation
-
-- Clarify docs/help: define exact sort semantics in terms of `book_id` and position.
-- Consider renaming/adding modes (`earliest-position`, `latest-position`, `best-ranked`) for unambiguous intent.
+Extend `_is_toc_paragraph()` to also detect:
+- Paragraphs whose text is entirely or primarily a known heading name
+  (matching section heading text exactly)
+- Paragraphs consisting solely of a title + page number pattern
+- Paragraphs within a container that has TOC-like structure (e.g., many
+  short paragraphs with similar formatting before the first heading)
 
 ---
 
-## F-005: Catalog retrieval path is uncached and memory-heavy each run
+### F-004: Hard Times (PG 786) — 87 micro-paragraphs in front matter
 
-Severity: **Low-Medium**  
-Type: Performance / technical debt  
-Area: Catalog fetch and parsing
+**Severity:** Low-moderate
+**Component:** `gutenbit/html_chunker.py`, front-matter boundary handling
 
-### Impact
+#### Symptom
 
-- Every `catalog` and `ingest` run re-downloads and decompresses full catalog.
-- Adds latency and resource overhead in repetitive workflows and CI.
+`(unsectioned opening)` contains 87 paragraphs with only 1,301 characters
+total (~15 chars average). Opening text is "By CHARLES DICKENS".
 
-### Evidence
+#### Root Cause
 
-Timing sample:
+The Gutenberg HTML has extensive front matter between the START delimiter and
+the first section heading. Each line of the title block, CONTENTS listing,
+and dedication is a separate `<p>` element. Since these lack `pginternal`
+links, `_is_toc_paragraph()` does not filter them.
 
-```bash
-/usr/bin/time -lp uv run gutenbit --db /tmp/gutenbit_dickens_major.db catalog --author Dickens -n 5
+#### Impact
+
+87 mostly-empty chunks in the database. Noise in search results, inflated
+chunk counts. The 87:1301 ratio (avg 15 chars/chunk) is a strong signal
+that these are not meaningful paragraphs.
+
+#### Recommended Fix
+
+Consider a minimum paragraph length threshold for front-matter content
+(e.g., skip paragraphs < 20 chars before the first heading), or implement
+a more aggressive front-matter detection heuristic.
+
+---
+
+## Display / Ergonomics Issues
+
+### F-005: David Copperfield (PG 766) — unreadable section table
+
+**Severity:** Low (display only)
+**Component:** `gutenbit/cli.py:1029`, `_render_section_summary()`
+
+#### Symptom
+
+Every row in the CONTENTS table shows the same truncated prefix:
+```
+THE PERSONAL HISTORY AND EXPERIENCE O...
 ```
 
-Observed around `real ~1.00s` with high peak RSS during parse in this environment.
+All 64 chapter sections are indistinguishable because div1 is the full
+book title ("THE PERSONAL HISTORY AND EXPERIENCE OF DAVID COPPERFIELD
+THE YOUNGER"), div2 holds the actual chapter name, and the 40-character
+column width truncates before the chapter name is ever visible.
 
-### Likely root cause
+#### Root Cause
 
-- No local cache layer for catalog payload.
+The section display joins div1/div2/div3/div4 with " / " and then
+truncates to 40 characters. When div1 alone exceeds 40 characters, the
+deeper levels (where the useful chapter names live) are never shown.
 
-Code reference:
-- Direct fetch/decompress path: [/Users/keinan/Code/gutenbit/gutenbit/catalog.py:154](/Users/keinan/Code/gutenbit/gutenbit/catalog.py:154)
+#### Recommended Fix
 
-### Recommendation
-
-- Add optional catalog cache with TTL and explicit refresh flag.
-- Consider streaming parse or lightweight persisted index for frequent CLI use.
-
----
-
-## F-006: Dedupe policy behavior may not match user expectation of “canonical edition” remapping
-
-Severity: **Low-Medium**  
-Type: Product semantics / docs mismatch risk  
-Area: Catalog dedupe
-
-### Impact
-
-- Some likely variant editions do not remap, despite policy language suggesting duplicate collapse.
-- Users may expect stronger canonicalization than strict normalized title+author matching currently provides.
-
-### Reproduction
-
-```bash
-DB=/tmp/gutenbit_dickens_dedupe.db
-rm -f "$DB"
-uv run gutenbit --db "$DB" ingest 27924 --delay 0
+When truncation would completely hide the deepest level, prefer showing
+the most specific level with an abbreviated prefix:
+```
+…/CHAPTER 1. — I AM BORN
+…/CHAPTER 2. — I OBSERVE
 ```
 
-Observed: no remap message; ingests ID as-is.
-
-### Likely root cause
-
-- Dedupe key is conservative and exact after normalization.
-
-Code references:
-- Dedupe strategy and keying: [/Users/keinan/Code/gutenbit/gutenbit/catalog.py:105](/Users/keinan/Code/gutenbit/gutenbit/catalog.py:105)
-- Canonical resolution in ingest: [/Users/keinan/Code/gutenbit/gutenbit/cli.py:393](/Users/keinan/Code/gutenbit/gutenbit/cli.py:393)
-
-### Recommendation
-
-- Either strengthen canonicalization heuristics, or narrow wording in docs/help to reflect conservative dedupe behavior.
-- Add test cases for expected remap/non-remap examples.
+Or increase the section column width dynamically when all sections share
+a common prefix.
 
 ---
 
-## 4. Additional UX/Consistency Notes
+### F-006: `search --book-id` for non-existent book — no warning
 
-- Help text quality is generally strong and discoverable.
-- Output is human-readable and concise.
-- `--json` is now available across commands (`catalog`, `ingest`, `delete`, `books`, `search`, `view`) with a unified envelope (`ok`, `command`, `data`, `warnings`, `errors`).
-- `books`/`catalog` truncate author string to 30 chars, which can hide co-authors/metadata in ways that may confuse filtering.
+**Severity:** Low
+**Status:** **Fixed in this branch**
 
-Relevant references:
-- Author truncation in `catalog`: [/Users/keinan/Code/gutenbit/gutenbit/cli.py:373](/Users/keinan/Code/gutenbit/gutenbit/cli.py:373)
-- Author truncation in `books`: [/Users/keinan/Code/gutenbit/gutenbit/cli.py:423](/Users/keinan/Code/gutenbit/gutenbit/cli.py:423)
-
----
-
-## 5. Verified Working Behavior (No issue)
-
-The following worked consistently in live testing:
-- Ingesting all 15 major Dickens novels in one run.
-- Re-ingest behavior:
-  - skips already-downloaded books when chunker version is current
-  - auto-reprocesses already-downloaded books when chunker version is stale
-- Delete behavior and post-delete search/view outcomes.
-- Empty DB UX (books/search/view/delete responses are coherent).
-- Network battle tests in `tests/test_battle.py` CLI-focused subset.
+`gutenbit search "ghost" --book-id 99999` now prints
+`warning: Book 99999 is not in the database.` and includes it in the JSON
+`warnings` array. Previously returned "No results." with no indication the
+book was missing.
 
 ---
 
-## 6. Recommended Remediation Order
+## Outstanding Non-Chunker Issues
 
-1. ~~Fix F-001 (`Hard Times` structural ordering/end-matter boundary correctness).~~ **Done (March 7, 2026).**  
-2. ~~Fix F-002 (robust section matching normalization).~~ **Done (March 7, 2026).**  
-3. ~~Fix F-003 (strict/consistent numeric validation for preview chars).~~ **Done (March 7, 2026).**  
-4. ~~Clarify/adjust F-004 mode semantics in docs and/or API naming.~~ **Done (March 7, 2026).**  
-5. Address F-005 catalog caching for performance and reliability.  
-6. Resolve F-006 via stronger dedupe or clearer policy wording.
+### F-007: Catalog fetch is uncached
+
+**Severity:** Low-medium
+**Component:** `gutenbit/catalog.py`
+
+Every `catalog` and `ingest` command re-downloads and parses the full
+Project Gutenberg catalog CSV (~1s latency). No local cache exists.
+
+**Recommendation:** Add optional catalog cache with TTL and explicit
+`--refresh` flag.
 
 ---
 
-## 7. Suggested New Regression Tests
+## Items Working Well
 
-- ~~`test_hard_times_heading_order_and_end_matter_boundary` (PG 786).~~ Implemented.
-- ~~`test_view_section_case_insensitive_and_punctuation_spacing_normalization`.~~ Implemented.
-- ~~`test_preview_chars_non_positive_rejected` for both `search` and `view`.~~ Implemented.
-- ~~`test_search_mode_first_last_documented_ordering`.~~ Covered by existing ordering tests + updated help/docs checks.
-- `test_catalog_cache_hit_behavior` (if cache implemented).
-- `test_canonical_dedupe_examples` with explicit remap expectations.
+The following were thoroughly tested and found solid:
+
+| Area | Verdict |
+|------|---------|
+| Help text (all 6 commands) | Clear, with useful examples and workflow guide |
+| JSON envelope consistency | `{ok, command, data, warnings, errors}` across all commands |
+| Error messages for bad sections | Shows available sections + tip command |
+| Constraint enforcement | Conflicting selectors, invalid options all produce clear errors |
+| Re-ingest behavior | Correctly skips current, reprocesses on chunker version change |
+| Exit codes | 0 success, 1 error, 2 argparse, 130 interrupt |
+| Delete safety | Proper warnings for missing books, correct exit codes |
+| Search modes (ranked/first/last) | Correct orderings verified |
+| View selectors (all/position/section) | Each works correctly with --around, --full, --kind |
+| Phrase search | Correct FTS5 quoting and escaping |
+| Multi-book operations | Batch ingest, cross-book search all work |
+
+---
+
+## Pre-existing Code Quality Notes
+
+- **3 files had formatting drift** from `ruff format`: `gutenbit/db.py`,
+  `gutenbit/html_chunker.py`, `tests/test_search.py`. **Fixed in this branch.**
+- **Linting:** `ruff check .` passes clean.
+- **Test suite:** 168/169 pass. Single failure is F-002 (Sherlock Holmes).
+
+---
+
+## Recommended Remediation Order
+
+| Priority | Issue | Effort | Impact |
+|----------|-------|--------|--------|
+| 1 | F-001: Barnaby Rudge missing chapters (increase `limit`) | Small | High — silent data loss |
+| 2 | F-002: Sherlock Holmes spurious headings (filter front matter) | Medium | Medium — test failure |
+| 3 | F-003: CONTENTS text leaking (extend `_is_toc_paragraph`) | Medium | Moderate — search noise |
+| 4 | F-005: David Copperfield display (smarter truncation) | Small | Low — readability |
+| 5 | F-004: Hard Times front matter noise (min-length filter) | Small | Low — chunk inflation |
+| 6 | F-007: Catalog caching | Medium | Low-medium — latency |
