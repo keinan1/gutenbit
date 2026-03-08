@@ -49,7 +49,7 @@ class Chunk:
 # ---------------------------------------------------------------------------
 
 _BROAD_KEYWORDS = frozenset({"book", "part", "act", "epilogue", "volume"})
-CHUNKER_VERSION = 9
+CHUNKER_VERSION = 10
 
 # Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
 # with no subtitle text — used to merge consecutive number + title headings.
@@ -86,6 +86,10 @@ _PAGE_HEADING_RE = re.compile(r"^(?:page|p\.)\s+\d+\b", re.IGNORECASE)
 _NON_STRUCTURAL_HEADING_RE = re.compile(
     r"^(?:notes?|footnotes?|endnotes?|transcriber's note|transcribers note|"
     r"editor's note|editors note)\b",
+    re.IGNORECASE,
+)
+_FRONT_MATTER_ATTRIBUTION_RE = re.compile(
+    r"^(?:by|translated\s+by|edited\s+by|illustrated\s+by)\s",
     re.IGNORECASE,
 )
 _FRONT_MATTER_HEADINGS = frozenset(
@@ -171,6 +175,13 @@ def chunk_html(html: str) -> list[Chunk]:
         chunks.append(Chunk(pos, "", "", "", "", text, "text"))
         pos += 1
 
+    # Find a tail boundary: the first non-structural heading (e.g. FOOTNOTES,
+    # NOTES) that appears after the last section.  This prevents endnotes from
+    # being lumped into the last chapter.
+    tail_anchor = _find_non_structural_boundary_after(
+        sections[-1].body_anchor, tag_positions=tag_positions, bounds=bounds
+    )
+
     # Body sections.
     for i, section in enumerate(sections):
         # Update division tracking.
@@ -184,8 +195,8 @@ def chunk_html(html: str) -> list[Chunk]:
         )
         pos += 1
 
-        # Paragraphs until next section.
-        next_anchor = sections[i + 1].body_anchor if i + 1 < len(sections) else None
+        # Paragraphs until next section (or tail boundary for the last section).
+        next_anchor = sections[i + 1].body_anchor if i + 1 < len(sections) else tail_anchor
         for text in _paragraphs_between(
             section.body_anchor,
             next_anchor,
@@ -372,6 +383,37 @@ def _parse_heading_sections(
     return _merge_bare_heading_pairs(sections)
 
 
+# Tail-boundary pattern: only clearly apparatus headings, not ambiguous
+# singular "NOTE" which can be a narrative epilogue (e.g. Dracula).
+_TAIL_BOUNDARY_HEADING_RE = re.compile(
+    r"^(?:footnotes?|endnotes?|notes\b|transcriber'?s?\s+note|editor'?s?\s+note)",
+    re.IGNORECASE,
+)
+
+
+def _find_non_structural_boundary_after(
+    anchor: Tag,
+    *,
+    tag_positions: dict[int, int],
+    bounds: _ContentBounds,
+) -> Tag | None:
+    """Find the first apparatus heading after *anchor* (e.g. FOOTNOTES, NOTES).
+
+    Returns the heading tag itself so its position can be used as a stop boundary
+    for paragraph collection.  Uses a restrictive pattern to avoid false positives
+    on narrative headings like a singular "NOTE" epilogue.
+    """
+    for el in anchor.find_all_next(_HEADING_TAGS):
+        if not isinstance(el, Tag):
+            continue
+        if not _tag_within_bounds(el, tag_positions, bounds):
+            continue
+        heading_text = _clean_heading_text(_extract_heading_text(el))
+        if heading_text and _TAIL_BOUNDARY_HEADING_RE.match(heading_text):
+            return el
+    return None
+
+
 def _find_next_heading(
     anchor: Tag,
     used_headings: set[int] | None = None,
@@ -441,6 +483,8 @@ def _is_non_structural_heading_text(heading_text: str) -> bool:
     if lowered in _FRONT_MATTER_HEADINGS:
         return True
     if _PAGE_HEADING_RE.match(text):
+        return True
+    if _FRONT_MATTER_ATTRIBUTION_RE.match(text):
         return True
     return _NON_STRUCTURAL_HEADING_RE.match(text) is not None
 
