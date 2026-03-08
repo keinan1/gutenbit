@@ -704,7 +704,7 @@ section hierarchy:  level1 > level2 > level3 > level4  (compacted from shallowes
         action="store_true",
         help="output as JSON",
     )
-    vw.add_argument("--position", type=int, help="retrieve one exact chunk by position")
+    vw.add_argument("--position", type=int, help="retrieve chunks starting at this position")
     vw.add_argument(
         "--section",
         help=(
@@ -713,7 +713,9 @@ section hierarchy:  level1 > level2 > level3 > level4  (compacted from shallowes
         ),
     )
     vw.add_argument(
-        "--meta", action="store_true", help="show chunk metadata headers in text output"
+        "--meta",
+        action="store_true",
+        help="show chunk metadata (position, kind, section) in text output",
     )
     vw.add_argument(
         "--preview",
@@ -1416,11 +1418,9 @@ def _print_chunk_blocks(
 
 
 def _chunk_rows_json_payload(
-    rows: list[ChunkRecord], *, full: bool, preview_chars: int, include_meta: bool
-) -> list[dict[str, Any]] | list[str]:
-    if include_meta:
-        return [_chunk_payload(row, full=full, preview_chars=preview_chars) for row in rows]
-    return [row.content if full else _preview(row.content, preview_chars) for row in rows]
+    rows: list[ChunkRecord], *, full: bool, preview_chars: int
+) -> list[dict[str, Any]]:
+    return [_chunk_payload(row, full=full, preview_chars=preview_chars) for row in rows]
 
 
 def _view_action_hints(book_id: int, summary: _SectionSummary | None) -> dict[str, str]:
@@ -1545,13 +1545,11 @@ def _cmd_view(args: argparse.Namespace) -> int:
                         "n": n,
                         "full": full,
                         "chars": preview_chars,
-                        "meta": bool(args.meta),
                         "count": len(rows),
                         "chunks": _chunk_rows_json_payload(
                             rows,
                             full=full,
                             preview_chars=preview_chars,
-                            include_meta=bool(args.meta),
                         ),
                     },
                 )
@@ -1717,13 +1715,11 @@ def _cmd_view(args: argparse.Namespace) -> int:
                         "n": n,
                         "full": full,
                         "chars": preview_chars,
-                        "meta": bool(args.meta),
                         "count": len(rows),
                         "chunks": _chunk_rows_json_payload(
                             rows,
                             full=full,
                             preview_chars=preview_chars,
-                            include_meta=bool(args.meta),
                         ),
                     },
                 )
@@ -1788,12 +1784,10 @@ def _cmd_view(args: argparse.Namespace) -> int:
                     "count": len(rows),
                     "full": full,
                     "chars": preview_chars,
-                    "meta": bool(args.meta),
                     "chunks": _chunk_rows_json_payload(
                         rows,
                         full=full,
                         preview_chars=preview_chars,
-                        include_meta=bool(args.meta),
                     ),
                     "action_hints": action_hints,
                 },

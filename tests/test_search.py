@@ -541,8 +541,8 @@ def test_view_default_json(tmp_path):
     assert data["n"] == 3
     assert data["count"] == 3
     assert data["full"] is True
-    assert data["meta"] is False
-    assert data["chunks"][0] == "CHAPTER 1"
+    assert data["chunks"][0]["content"] == "CHAPTER 1"
+    assert data["chunks"][0]["kind"] == "heading"
     assert data["action_hints"]["toc"] == "gutenbit toc 1"
     assert data["action_hints"]["view_first_section"] == "gutenbit view 1 --section 1 -n 20"
 
@@ -1429,9 +1429,9 @@ def test_view_section_json_output(tmp_path):
     assert payload["data"]["mode"] == "section"
     assert payload["data"]["section"] == "CHAPTER 1"
     assert payload["data"]["n"] == 1
-    assert payload["data"]["meta"] is False
     assert payload["data"]["count"] == 1
-    assert payload["data"]["chunks"][0] == "CHAPTER 1"
+    assert payload["data"]["chunks"][0]["content"] == "CHAPTER 1"
+    assert payload["data"]["chunks"][0]["kind"] == "heading"
 
 
 def test_view_section_json_meta_output(tmp_path):
@@ -1445,7 +1445,6 @@ def test_view_section_json_meta_output(tmp_path):
     assert code == 0
     payload = json.loads(out)
     chunk = payload["data"]["chunks"][0]
-    assert payload["data"]["meta"] is True
     assert chunk["section"] == "CHAPTER 1"
     assert chunk["position"] == 0
 
