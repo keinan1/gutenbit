@@ -15,8 +15,6 @@ from gutenbit.db import ChunkRecord, Database
 
 DEFAULT_DB = "gutenbit.db"
 CHUNK_KINDS = ["heading", "text"]
-SEARCH_KIND_ALIASES = {"paragraph": "text"}
-SEARCH_KIND_CHOICES = sorted({*CHUNK_KINDS, *SEARCH_KIND_ALIASES})
 JSON_OPENING_LINE_PREVIEW_CHARS = 140
 DEFAULT_OPENING_CHUNK_COUNT = 3
 DEFAULT_VIEW_SELECTOR_N = 1
@@ -392,12 +390,6 @@ def _add_global_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _normalize_search_kind(kind: str | None) -> str | None:
-    if kind is None:
-        return None
-    return SEARCH_KIND_ALIASES.get(kind, kind)
-
-
 def _opening_rows(db: Database, book_id: int, n: int) -> list[ChunkRecord]:
     """Return a default reading window, skipping common front-matter headings.
 
@@ -587,7 +579,6 @@ examples:
   gutenbit search "door" --mode last                        # highest book_id first
   gutenbit search "may it be" --phrase --book-id 2554 -n 20 # exact phrase
   gutenbit search "freedom" --kind text -n 5                 # filtered top hits
-  gutenbit search "freedom" --kind paragraph -n 5            # paragraph alias for text
   gutenbit search "ghost" --full -n 3                       # full chunk text
   gutenbit search "battle" --json                            # JSON output
 
@@ -625,8 +616,8 @@ mode ordering:
     se.add_argument("--book-id", type=int, help="restrict to a single book by PG ID")
     se.add_argument(
         "--kind",
-        choices=SEARCH_KIND_CHOICES,
-        help="filter by chunk kind (heading|text; paragraph is accepted as an alias for text)",
+        choices=CHUNK_KINDS,
+        help="filter by chunk kind (heading or text)",
     )
     se.add_argument(
         "-n",
@@ -704,7 +695,7 @@ section hierarchy:  level1 > level2 > level3 > level4  (compacted from shallowes
         action="store_true",
         help="output as JSON",
     )
-    vw.add_argument("--position", type=int, help="retrieve one exact chunk by position")
+    vw.add_argument("--position", type=int, help="retrieve chunks starting at this position")
     vw.add_argument(
         "--section",
         help=(
@@ -713,7 +704,9 @@ section hierarchy:  level1 > level2 > level3 > level4  (compacted from shallowes
         ),
     )
     vw.add_argument(
-        "--meta", action="store_true", help="show chunk metadata headers in text output"
+        "--meta",
+        action="store_true",
+        help="show chunk metadata (position, kind, section) in text output",
     )
     vw.add_argument(
         "--preview",
@@ -1027,7 +1020,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
     default_limit = 1 if args.mode in {"first", "last"} else 20
     limit = args.limit if args.limit > 0 else default_limit
     preview_chars = args.preview_chars
-    kind = _normalize_search_kind(args.kind)
+    kind = args.kind
 
     warnings: list[str] = []
     with Database(args.db) as db:
@@ -1416,11 +1409,9 @@ def _print_chunk_blocks(
 
 
 def _chunk_rows_json_payload(
-    rows: list[ChunkRecord], *, full: bool, preview_chars: int, include_meta: bool
-) -> list[dict[str, Any]] | list[str]:
-    if include_meta:
-        return [_chunk_payload(row, full=full, preview_chars=preview_chars) for row in rows]
-    return [row.content if full else _preview(row.content, preview_chars) for row in rows]
+    rows: list[ChunkRecord], *, full: bool, preview_chars: int
+) -> list[dict[str, Any]]:
+    return [_chunk_payload(row, full=full, preview_chars=preview_chars) for row in rows]
 
 
 def _view_action_hints(book_id: int, summary: _SectionSummary | None) -> dict[str, str]:
@@ -1545,13 +1536,11 @@ def _cmd_view(args: argparse.Namespace) -> int:
                         "n": n,
                         "full": full,
                         "chars": preview_chars,
-                        "meta": bool(args.meta),
                         "count": len(rows),
                         "chunks": _chunk_rows_json_payload(
                             rows,
                             full=full,
                             preview_chars=preview_chars,
-                            include_meta=bool(args.meta),
                         ),
                     },
                 )
@@ -1717,13 +1706,11 @@ def _cmd_view(args: argparse.Namespace) -> int:
                         "n": n,
                         "full": full,
                         "chars": preview_chars,
-                        "meta": bool(args.meta),
                         "count": len(rows),
                         "chunks": _chunk_rows_json_payload(
                             rows,
                             full=full,
                             preview_chars=preview_chars,
-                            include_meta=bool(args.meta),
                         ),
                     },
                 )
@@ -1788,12 +1775,10 @@ def _cmd_view(args: argparse.Namespace) -> int:
                     "count": len(rows),
                     "full": full,
                     "chars": preview_chars,
-                    "meta": bool(args.meta),
                     "chunks": _chunk_rows_json_payload(
                         rows,
                         full=full,
                         preview_chars=preview_chars,
-                        include_meta=bool(args.meta),
                     ),
                     "action_hints": action_hints,
                 },
