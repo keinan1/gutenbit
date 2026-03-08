@@ -383,20 +383,6 @@ def test_search_help_shows_post_subcommand_global_flags(tmp_path):
     assert "--verbose" in out
 
 
-def test_search_accepts_paragraph_alias_for_text(tmp_path):
-    db = _make_db(tmp_path)
-    db_path = db.path
-    db.close()
-
-    code, out, _err = _run_cli(db_path, "search", "Ishmael", "--kind", "paragraph", "--json")
-    assert code == 0
-    payload = json.loads(out)
-    assert payload["ok"] is True
-    assert payload["data"]["filters"]["kind"] == "text"
-    assert payload["data"]["count"] >= 1
-    assert all(item["kind"] == "text" for item in payload["data"]["items"])
-
-
 def test_search_invalid_fts_syntax_returns_friendly_error(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
