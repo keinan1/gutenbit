@@ -695,6 +695,7 @@ examples:
   gutenbit search "(ghost OR spirit) AND NOT haunt*" --raw  # advanced FTS5
   gutenbit search "battle" --book 2600                      # restrict to one book
   gutenbit search "battle" --section "BOOK ONE"             # restrict to a section
+  gutenbit search "STAVE" --book 46 --kind heading          # search headings only
   gutenbit search "door" --mode first                       # reading order (earliest)
   gutenbit search "door" --mode last                        # reverse reading order
   gutenbit search "ghost" --radius 2                        # show surrounding passage
@@ -713,7 +714,8 @@ mode ordering:
   last    book descending, then position descending
 
 tip: use 'gutenbit toc <id>' first to see a book's structure, then
-     narrow searches with --book and --section.""",
+     narrow searches with --book and --section. Search uses text chunks
+     by default; use --kind heading or --kind all when needed.""",
     )
     se.add_argument("query", help="search query (plain text by default; see --raw, --phrase)")
     query_group = se.add_mutually_exclusive_group()
@@ -740,6 +742,12 @@ tip: use 'gutenbit toc <id>' first to see a book's structure, then
     se.add_argument("--author", help="filter results by author (substring match)")
     se.add_argument("--title", help="filter results by title (substring match)")
     se.add_argument("--book", type=int, help="restrict to a single book by PG ID")
+    se.add_argument(
+        "--kind",
+        choices=["text", "heading", "all"],
+        default="text",
+        help="chunk kind to search (default: %(default)s)",
+    )
     se.add_argument(
         "--section",
         help=(
@@ -1222,6 +1230,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
             "author": args.author,
             "title": args.title,
             "book_id": args.book,
+            "kind": None if args.kind == "all" else args.kind,
             "div_path": div_path,
         }
 
@@ -1256,6 +1265,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
                         "author": args.author,
                         "title": args.title,
                         "book": args.book,
+                        "kind": args.kind,
                         "section": section_arg,
                     },
                     "order": args.mode,
@@ -1285,6 +1295,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
                     radius=radius,
                     content=content,
                     extras={
+                        "kind": result.kind,
                         "rank": idx,
                         "score": round(result.score, 4),
                     },
@@ -1307,6 +1318,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
                         "author": args.author,
                         "title": args.title,
                         "book": args.book,
+                        "kind": args.kind,
                         "section": section_arg,
                     },
                     "count": total_results,
@@ -1328,6 +1340,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
                 "author": args.author,
                 "title": args.title,
                 "book": args.book,
+                "kind": args.kind,
                 "section": section_arg,
             },
             "order": args.mode,

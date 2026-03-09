@@ -389,6 +389,15 @@ def test_search_help_documents_radius(tmp_path):
     assert "--radius" in out
 
 
+def test_search_help_documents_kind(tmp_path):
+    code, out, _err = _run_cli(tmp_path / "any.db", "search", "-h")
+    assert code == 0
+    assert "--kind" in out
+    assert "text" in out
+    assert "heading" in out
+    assert "all" in out
+
+
 def test_search_invalid_fts_syntax_returns_friendly_error(tmp_path):
     db = _make_db(tmp_path)
     db_path = db.path
@@ -470,6 +479,41 @@ def test_search_cli_raw_passes_fts5_syntax(tmp_path):
     assert code == 0
     assert "total_results=2  shown_results=2" in out
     assert "2 results · ranked order" in out
+
+
+def test_search_cli_defaults_to_text_chunks(tmp_path):
+    db = Database(tmp_path / "test.db")
+    db._store(_BOOK3, chunk_html(_BOOK3_HTML))
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "STAVE", "--book", "3")
+    assert code == 0
+    assert "No results" in out
+
+
+def test_search_cli_can_search_heading_chunks(tmp_path):
+    db = Database(tmp_path / "test.db")
+    db._store(_BOOK3, chunk_html(_BOOK3_HTML))
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "STAVE", "--book", "3", "--kind", "heading")
+    assert code == 0
+    assert "STAVE ONE" in out
+    assert "total_results=1  shown_results=1" in out
+
+
+def test_search_cli_kind_all_includes_heading_chunks(tmp_path):
+    db = Database(tmp_path / "test.db")
+    db._store(_BOOK3, chunk_html(_BOOK3_HTML))
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "search", "STAVE", "--book", "3", "--kind", "all")
+    assert code == 0
+    assert "STAVE ONE" in out
+    assert "total_results=1  shown_results=1" in out
 
 
 def test_search_cli_footer_shows_total_and_shown_when_limited(tmp_path):
@@ -1583,6 +1627,7 @@ def test_search_json_output(tmp_path):
     assert data["query"]["raw"] == "Ishmael"
     assert data["order"] == "ranked"
     assert data["limit"] == 10
+    assert data["filters"]["kind"] == "text"
     assert data["total_results"] >= 1
     assert data["shown_results"] >= 1
     assert len(data["items"]) >= 1
@@ -1598,6 +1643,7 @@ def test_search_json_output(tmp_path):
     assert result["forward"] is None
     assert result["radius"] is None
     assert result["all"] is None
+    assert result["kind"] == "text"
     assert "rank" in result
     assert "score" in result
 
@@ -1627,8 +1673,34 @@ def test_search_json_radius_output(tmp_path):
     assert result["forward"] is None
     assert result["radius"] == 2
     assert result["all"] is None
+    assert result["kind"] == "text"
     assert result["content"].startswith("CHAPTER 1")
     assert "Call me Ishmael" in result["content"]
+
+
+def test_search_json_heading_kind_output(tmp_path):
+    db = Database(tmp_path / "test.db")
+    db._store(_BOOK3, chunk_html(_BOOK3_HTML))
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(
+        db_path,
+        "search",
+        "STAVE",
+        "--book",
+        "3",
+        "--kind",
+        "heading",
+        "--json",
+    )
+    assert code == 0
+    payload = json.loads(out)
+    data = payload["data"]
+    assert data["filters"]["kind"] == "heading"
+    assert data["total_results"] == 1
+    assert data["items"][0]["kind"] == "heading"
+    assert data["items"][0]["content"] == "STAVE ONE"
 
 
 def test_search_json_empty(tmp_path):
@@ -1641,6 +1713,7 @@ def test_search_json_empty(tmp_path):
     payload = json.loads(out)
     assert payload["ok"] is True
     assert payload["command"] == "search"
+    assert payload["data"]["filters"]["kind"] == "text"
     assert payload["data"]["total_results"] == 0
     assert payload["data"]["shown_results"] == 0
     assert payload["data"]["items"] == []
