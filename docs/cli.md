@@ -84,7 +84,7 @@ gutenbit search "ghost OR spirit" --raw                   # FTS5 boolean query
 gutenbit search "Levin" --book-id 1399 --mode first
 gutenbit search "battle" --section "BOOK ONE" --book-id 2600
 gutenbit search "freedom" --kind text -n 5
-gutenbit search "ghost" -n 5 -r 2                        # include neighboring chunks
+gutenbit search "ghost" -n 5 -r 2                        # include surrounding passage
 gutenbit search "ghost" --full -n 3
 gutenbit search "battle" --count
 ```
@@ -101,7 +101,7 @@ gutenbit search "battle" --count
 | `--section SELECTOR` | Restrict to a section by path prefix or number from `toc` (number requires `--book-id`) |
 | `--kind KIND` | Filter by chunk kind: `heading` or `text` |
 | `-n`, `--limit N` | Maximum results (default: 20 for ranked, 1 for first/last) |
-| `-r`, `--radius N` | Neighboring chunks to include on each side of each hit |
+| `-r`, `--radius N` | Surrounding passage chunks to include on each side of each hit |
 | `--count` | Just print the number of matching chunks |
 | `--full` | Print full chunk text instead of previews |
 | `--preview-chars N` | Preview length per result (default: 140) |
@@ -124,7 +124,7 @@ By default, punctuation in the query is auto-escaped so apostrophes, hyphens, an
 ### Result shaping
 
 - Use `-n` to control how many hits are returned.
-- Use `-r` to include context chunks before and after each hit.
+- Use `-r` to read surrounding passage around each hit in normal reading order.
 - `--count` cannot be combined with `-r`.
 
 ### FTS5 query syntax
@@ -169,8 +169,8 @@ gutenbit view 1342 -n 0                         # full text
 gutenbit view 1342 --section 3                  # section by number
 gutenbit view 1342 --section "Chapter 1" -n 10  # section by path
 gutenbit view 1342 --position 50 -n 5           # from exact position
-gutenbit view 1342 --position 50 -r 2           # centered window around position
-gutenbit view 1342 --section 3 -r 2             # centered window around section start
+gutenbit view 1342 --position 50 -r 2           # surrounding passage around position
+gutenbit view 1342 --section 3 -r 2             # surrounding passage around section start
 gutenbit view 1342 --section 3 --meta           # with metadata headers
 gutenbit view 1342 --position 50 --preview --chars 120
 ```
@@ -181,13 +181,13 @@ gutenbit view 1342 --position 50 --preview --chars 120
 | `--section SELECTOR` | Section number (from `toc`) or path prefix (e.g. `"BOOK I/CHAPTER I"`) |
 | `--position N` | Exact chunk position |
 | `-n N` | Chunks to return (default: 3 for opening, 1 for section/position; 0 = all) |
-| `-r`, `--radius N` | Neighboring chunks to include on each side of the selected center chunk |
+| `-r`, `--radius N` | Surrounding passage chunks to include on each side of the selected center chunk |
 | `--preview` | Show truncated previews instead of full text |
 | `--chars N` | Preview length when using `--preview` (default: 140) |
 | `--meta` | Include chunk metadata headers in text output |
 | `--json` | Output as JSON |
 
-Use `--section` or `--position`, not both. `--preview` requires `--section` or `--position`. `-n` and `-r` are mutually exclusive in `view`: `-n` is a forward slice, `-r` is a centered window. Run `toc` first to see available section numbers.
+Use `--section` or `--position`, not both. `--preview` requires `--section` or `--position`. `-n` and `-r` are mutually exclusive in `view`: `-n` is a forward slice, `-r` is a surrounding passage window. Run `toc` first to see available section numbers.
 
 ## JSON output
 
@@ -205,14 +205,14 @@ Every command accepts `--json` and returns a unified envelope:
 
 When `ok` is `false`, the `errors` list contains error messages. The `data` field holds command-specific results. The `warnings` list captures non-fatal issues (e.g. a requested ID not found during bulk delete).
 
-For `view`, chunk-returning modes use an ordered `chunks` array plus mode metadata such as `n` or `radius`. Validation errors preserve that same request-shape metadata in `data` so clients can distinguish forward-slice requests from radius-window requests.
+For `view`, chunk-returning modes use an ordered `chunks` array plus mode metadata such as `n`. Successful radius-window responses use `radius` for the ordered list of chunk positions in the returned passage. Validation errors echo `radius_request` instead of a computed `radius` list.
 
-For `search`, `data["items"]` remains the hit list. When `-r` is used, `data["radius"]` records the requested radius and each item gains:
+For `search`, `data["items"]` remains the hit list. When `-r` is used, each item gains:
 
 - `chunks`: the ordered contextual window for that hit
-- `center_index`: the matched chunk's index within `chunks`
+- `radius`: the ordered list of chunk positions in that window
 
-Each contextual chunk in these arrays includes a `role` field with one of `before`, `center`, or `after`.
+The center chunk is the middle entry in that ordered `radius` list when the full window is available.
 
 ## Global flags
 
