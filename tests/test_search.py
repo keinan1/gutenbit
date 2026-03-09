@@ -419,7 +419,7 @@ def test_search_invalid_fts_syntax_with_radius_keeps_radius_in_json(tmp_path):
     assert code == 1
     payload = json.loads(out)
     assert payload["ok"] is False
-    assert payload["data"]["radius"] == 2
+    assert payload["data"]["radius_request"] == 2
     assert payload["errors"] == ["Invalid FTS query syntax: unterminated string."]
 
 
@@ -844,7 +844,7 @@ def test_view_position_with_radius_and_meta(tmp_path):
     )
     assert code == 0
     assert "radius=1" in out
-    assert "role=center" in out
+    assert "position=1" in out
     assert "Call me Ishmael" in out
     assert "CHAPTER 1" in out
 
@@ -864,10 +864,14 @@ def test_view_section_with_radius_crosses_section_boundary(tmp_path):
         "1",
     )
     assert code == 0
-    assert "[before]" in out
     assert "It is a way I have of driving off the spleen" in out
-    assert "[center] CHAPTER 2" in out
+    assert "CHAPTER 2" in out
     assert "I stuffed a shirt or two" in out
+    assert "[before]" not in out
+    assert "[center]" not in out
+    assert "[after]" not in out
+    assert "section='2'" not in out
+    assert "position=" not in out
 
 
 def test_view_section_with_n_and_meta(tmp_path):
@@ -1522,12 +1526,10 @@ def test_search_json_radius_output(tmp_path):
     assert code == 0
     payload = json.loads(out)
     data = payload["data"]
-    assert data["radius"] == 2
     result = data["items"][0]
-    assert result["center_index"] == 1
+    assert result["radius"] == [0, 1, 2, 3]
     assert [chunk["position"] for chunk in result["chunks"]] == [0, 1, 2, 3]
-    assert [chunk["role"] for chunk in result["chunks"]] == ["before", "center", "after", "after"]
-    assert result["chunks"][result["center_index"]]["content"].startswith("Call me Ishmael")
+    assert result["chunks"][1]["content"].startswith("Call me Ishmael")
 
 
 def test_search_json_empty(tmp_path):
@@ -1741,10 +1743,8 @@ def test_view_position_json_radius_output(tmp_path):
     payload = json.loads(out)
     data = payload["data"]
     assert data["mode"] == "position"
-    assert data["radius"] == 1
-    assert data["center_index"] == 1
+    assert data["radius"] == [0, 1, 2]
     assert [chunk["position"] for chunk in data["chunks"]] == [0, 1, 2]
-    assert [chunk["role"] for chunk in data["chunks"]] == ["before", "center", "after"]
 
 
 def test_view_section_json_radius_output(tmp_path):
@@ -1758,8 +1758,7 @@ def test_view_section_json_radius_output(tmp_path):
     data = payload["data"]
     assert data["mode"] == "section"
     assert data["section_number"] == 2
-    assert data["radius"] == 1
-    assert data["center_index"] == 1
+    assert data["radius"] == [2, 3, 4]
     assert [chunk["position"] for chunk in data["chunks"]] == [2, 3, 4]
     assert data["chunks"][1]["content"] == "CHAPTER 2"
 
@@ -1784,8 +1783,7 @@ def test_view_position_json_radius_error_keeps_radius(tmp_path):
     assert payload["ok"] is False
     assert payload["data"]["mode"] == "position"
     assert payload["data"]["position"] == 999
-    assert payload["data"]["radius"] == 2
-    assert "n" not in payload["data"]
+    assert payload["data"]["radius_request"] == 2
 
 
 def test_view_section_json_radius_error_keeps_radius(tmp_path):
@@ -1809,8 +1807,7 @@ def test_view_section_json_radius_error_keeps_radius(tmp_path):
     assert payload["data"]["mode"] == "section"
     assert payload["data"]["section"] == "999"
     assert payload["data"]["section_number"] == 999
-    assert payload["data"]["radius"] == 2
-    assert "n" not in payload["data"]
+    assert payload["data"]["radius_request"] == 2
 
 
 def test_view_section_json_meta_output(tmp_path):

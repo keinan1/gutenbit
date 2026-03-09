@@ -68,14 +68,14 @@ Read from an exact chunk position:
 gutenbit view 1342 --position 50 -n 5
 ```
 
-Read a centered window around a position or section start:
+Read surrounding passage around a position or section start:
 
 ```bash
 gutenbit view 1342 --position 50 -r 2
 gutenbit view 1342 --section 1 -r 2
 ```
 
-Use `-n` for forward slices and `-r` for symmetric windows. `-n 0` returns all chunks in scope.
+Use `-n` for forward slices and `-r` for surrounding passage windows. `-n 0` returns all chunks in scope.
 
 ### Search
 
