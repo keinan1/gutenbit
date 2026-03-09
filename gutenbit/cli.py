@@ -92,8 +92,6 @@ class _SectionRow(TypedDict):
 class _QuickActions(TypedDict):
     search: str
     view_first_section: str
-    view_first_position: str
-    view_from_position: str
     view_all: str
 
 
@@ -1430,15 +1428,6 @@ def _build_section_summary(db: Database, book_id: int) -> _SectionSummary | None
     if opening_section_num is not None:
         first_section_cmd = f"gutenbit view {book_id} --section {opening_section_num} --forward 20"
 
-    first_position = chunk_records[0].position if chunk_records else None
-    view_first_position_cmd = ""
-    view_from_position_cmd = ""
-    if first_position is not None:
-        view_first_position_cmd = f"gutenbit view {book_id} --position {first_position}"
-        view_from_position_cmd = (
-            f"gutenbit view {book_id} --position {first_position} --forward 20"
-        )
-
     view_all_cmd = f"gutenbit view {book_id} --all"
 
     return {
@@ -1466,8 +1455,6 @@ def _build_section_summary(db: Database, book_id: int) -> _SectionSummary | None
         "quick_actions": {
             "search": search_cmd,
             "view_first_section": first_section_cmd,
-            "view_first_position": view_first_position_cmd,
-            "view_from_position": view_from_position_cmd,
             "view_all": view_all_cmd,
         },
     }
@@ -1477,6 +1464,7 @@ def _section_summary_json_payload(summary: _SectionSummary) -> dict[str, Any]:
     json_sections: list[dict[str, Any]] = []
     for sec in summary["sections"]:
         sec_json = dict(sec)
+        sec_json.pop("position", None)
         sec_json["opening_line"] = _preview(sec["opening_line"], JSON_OPENING_LINE_PREVIEW_CHARS)
         json_sections.append(sec_json)
 
@@ -1554,7 +1542,6 @@ def _render_section_summary(db: Database, book_id: int) -> int:
     else:
         number_values = [str(sec["section_number"]) for sec in sections]
         section_values = [str(sec["section"]) for sec in sections]
-        position_values = [str(sec["position"]) for sec in sections]
         paras_values = [_format_int(sec["paras"]) for sec in sections]
         char_values = [_format_int(sec["chars"]) for sec in sections]
         est_word_values = [_format_int(sec["est_words"]) for sec in sections]
@@ -1564,8 +1551,6 @@ def _render_section_summary(db: Database, book_id: int) -> int:
         number_label = "Section #"
         number_width = max(len(number_label), max(len(v) for v in number_values))
         section_width = min(40, max(len("Section"), max(len(v) for v in section_values)))
-        position_label = "Position"
-        position_width = max(len(position_label), max(len(v) for v in position_values))
         paras_width = max(len("Paras"), max(len(v) for v in paras_values))
         chars_width = max(len("Chars"), max(len(v) for v in char_values))
         est_words_width = max(len("Est words"), max(len(v) for v in est_word_values))
@@ -1574,13 +1559,12 @@ def _render_section_summary(db: Database, book_id: int) -> int:
 
         print(
             f" {number_label:>{number_width}}  {'Section':<{section_width}}  "
-            f"{position_label:>{position_width}}  "
             f"{'Paras':>{paras_width}}  {'Chars':>{chars_width}}  "
             f"{'Est words':>{est_words_width}}  {'Est read':>{est_read_width}}  "
             f"{'Opening':<{opening_width}}"
         )
         print(
-            f" {'-' * number_width}  {'-' * section_width}  {'-' * position_width}  "
+            f" {'-' * number_width}  {'-' * section_width}  "
             f"{'-' * paras_width}  {'-' * chars_width}  "
             f"{'-' * est_words_width}  {'-' * est_read_width}  {'-' * opening_width}"
         )
@@ -1588,7 +1572,6 @@ def _render_section_summary(db: Database, book_id: int) -> int:
         for sec in sections:
             number = str(sec["section_number"])
             section_label = sec["section"]
-            position = str(sec["position"])
             if len(section_label) > section_width:
                 section_label = _truncate_section_label(section_label, section_width)
             paragraphs = _format_int(sec["paras"])
@@ -1601,7 +1584,6 @@ def _render_section_summary(db: Database, book_id: int) -> int:
                 opening = opening[:keep] + "..."
             print(
                 f" {number:>{number_width}}  {section_label:<{section_width}}  "
-                f"{position:>{position_width}}  "
                 f"{paragraphs:>{paras_width}}  {chars:>{chars_width}}  "
                 f"{est_words:>{est_words_width}}  {est_read:>{est_read_width}}  "
                 f"{opening:<{opening_width}}"
@@ -1611,10 +1593,6 @@ def _render_section_summary(db: Database, book_id: int) -> int:
     print(f"  {quick_actions['search']}")
     if quick_actions["view_first_section"]:
         print(f"  {quick_actions['view_first_section']}")
-    if quick_actions["view_first_position"]:
-        print(f"  {quick_actions['view_first_position']}")
-    if quick_actions["view_from_position"]:
-        print(f"  {quick_actions['view_from_position']}")
     if quick_actions["view_all"]:
         print(f"  {quick_actions['view_all']}")
     return 0
@@ -1632,16 +1610,12 @@ def _view_action_hints(book_id: int, summary: _SectionSummary | None) -> dict[st
         else {
             "search": "",
             "view_first_section": "",
-            "view_first_position": "",
-            "view_from_position": "",
             "view_all": "",
         }
     )
     return {
         "toc": f"gutenbit toc {book_id}",
         "view_first_section": quick_actions["view_first_section"],
-        "view_first_position": quick_actions["view_first_position"],
-        "view_from_position": quick_actions["view_from_position"],
         "view_all": quick_actions["view_all"],
         "search": quick_actions["search"],
     }
@@ -1652,8 +1626,6 @@ def _print_action_hints(action_hints: dict[str, str]) -> None:
     for key in [
         "toc",
         "view_first_section",
-        "view_first_position",
-        "view_from_position",
         "view_all",
         "search",
     ]:

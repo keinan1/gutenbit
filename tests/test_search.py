@@ -713,13 +713,14 @@ def test_toc_default_shows_structure(tmp_path):
     assert "CHAPTER 1" in out
     assert "Sections" in out
     assert "Section #" in out
-    assert "Section" in out and "Position" in out
+    assert "Section" in out
     assert "Paras" in out
     assert "Chars" in out
     assert "Est words" in out
     assert "Est read" in out
     assert "Opening" in out
-    assert "--position" in out
+    assert "gutenbit view 1 --section 1 --forward 20" in out
+    assert "gutenbit view 1 --all" in out
 
 
 def test_view_default_json(tmp_path):
@@ -778,7 +779,6 @@ def test_toc_default_json(tmp_path):
     assert list(summary["sections"][0].keys()) == [
         "section_number",
         "section",
-        "position",
         "paras",
         "chars",
         "est_words",
@@ -793,10 +793,6 @@ def test_toc_default_json(tmp_path):
         summary["quick_actions"]["view_first_section"]
         == "gutenbit view 1 --section 1 --forward 20"
     )
-    assert summary["quick_actions"]["view_first_position"].startswith(
-        "gutenbit view 1 --position "
-    )
-    assert summary["quick_actions"]["view_from_position"].startswith("gutenbit view 1 --position ")
     assert summary["quick_actions"]["view_all"] == "gutenbit view 1 --all"
 
 
