@@ -69,7 +69,8 @@ Full documentation: [Getting Started](docs/getting-started.md) | [Python API](do
 ## Development
 
 ```bash
-uv run pytest                    # tests
+uv run pytest                    # fast local suite (excludes live Gutenberg downloads)
+uv run pytest -m network         # live parser regression corpus against Gutenberg
 uv run ruff check .              # lint
 uv run ruff format --check .     # format check
 uv run ty check                  # type check
