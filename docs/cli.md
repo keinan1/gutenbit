@@ -17,10 +17,11 @@ uv tool install git+https://github.com/keinan1/gutenbit
 ```
 
 Then run `gutenbit --help`. Remove it later with `uv tool uninstall gutenbit`.
+Gutenbit stores its database and catalog cache in a `.gutenbit/` folder.
 
 If `gutenbit` is not found after install, run `uv tool update-shell` once and restart your shell.
 
-All commands store data in a local SQLite file. Use `--db PATH` to specify a non-default location (default: `gutenbit.db`). All commands support `--json` for machine-readable output.
+All CLI-managed state lives under `.gutenbit/` by default: the database is `.gutenbit/gutenbit.db`, and the catalog cache is stored under `.gutenbit/cache/`. Use `--db PATH` to store the database elsewhere. All commands support `--json` for machine-readable output.
 
 ## catalog
 
@@ -246,5 +247,5 @@ These flags apply to all subcommands:
 
 | Flag | Description |
 |------|-------------|
-| `--db PATH` | SQLite database path (default: `gutenbit.db`) |
+| `--db PATH` | SQLite database path (default: `.gutenbit/gutenbit.db`) |
 | `-v`, `--verbose` | Enable debug logging |

@@ -84,7 +84,7 @@ See the [API Reference](reference/gutenbit/catalog.md) for full details on `Cata
 ```python
 from gutenbit import Database
 
-with Database("gutenbit.db") as db:
+with Database(".gutenbit/gutenbit.db") as db:
     # all operations here
     ...
 ```
@@ -97,7 +97,7 @@ Or manage the connection manually with `db.close()`.
 catalog = Catalog.fetch()
 books = catalog.search(author="Tolstoy")
 
-with Database("gutenbit.db") as db:
+with Database(".gutenbit/gutenbit.db") as db:
     db.ingest(books)
 ```
 
