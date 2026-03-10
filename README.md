@@ -17,6 +17,7 @@ uv tool install git+https://github.com/keinan1/gutenbit
 ```
 
 Then run `gutenbit --help`. Remove it later with `uv tool uninstall gutenbit`.
+Gutenbit stores its database and catalog cache in a `.gutenbit/` folder.
 
 If this is your first `uv`-managed tool, run `uv tool update-shell` once and restart your shell so `gutenbit` is on your `PATH`.
 
@@ -34,7 +35,7 @@ from gutenbit import Catalog, Database
 catalog = Catalog.fetch()
 books = catalog.search(author="Austen, Jane")
 
-with Database("gutenbit.db") as db:
+with Database(".gutenbit/gutenbit.db") as db:
     db.ingest(books)
     for hit in db.search("pride"):
         print(hit.title, hit.div1, hit.content[:80])
@@ -54,6 +55,8 @@ gutenbit view 1342 --section 1 --all                          # read the full se
 ```
 
 All commands support `--json` for machine-readable output.
+CLI-managed state is stored under `.gutenbit/` by default, including the database at
+`.gutenbit/gutenbit.db` and the catalog cache under `.gutenbit/cache/`.
 
 ## Documentation
 

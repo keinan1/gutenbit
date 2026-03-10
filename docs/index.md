@@ -19,6 +19,7 @@ uv tool install git+https://github.com/keinan1/gutenbit
 ```
 
 Then run `gutenbit --help`. Remove it later with `uv tool uninstall gutenbit`.
+Gutenbit stores its database and catalog cache in a `.gutenbit/` folder.
 
 If `gutenbit` is not found after install, run `uv tool update-shell` once and restart your shell.
 
@@ -30,7 +31,7 @@ from gutenbit import Catalog, Database
 catalog = Catalog.fetch()
 books = catalog.search(title="Pride and Prejudice")
 
-with Database("gutenbit.db") as db:
+with Database(".gutenbit/gutenbit.db") as db:
     db.ingest(books)
     for hit in db.search("truth universally acknowledged"):
         print(hit.title, hit.div1, hit.content[:100])
