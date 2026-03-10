@@ -913,6 +913,56 @@ def test_page_number_toc_links_fall_back_to_heading_scan():
     assert "Hard Times and Reprinted Pieces [0" not in headings
 
 
+def test_numeric_toc_links_to_heading_keep_story_sections_and_ignore_inline_links():
+    html = _make_html("""
+    <h2>CONTENTS</h2>
+    <table><tbody>
+      <tr><td>I.</td><td>—A SCANDAL IN BOHEMIA</td><td>
+        <a href="#i" class="pginternal">3</a></td></tr>
+      <tr><td>II.</td><td>—THE RED-HEADED LEAGUE</td><td>
+        <a href="#ii" class="pginternal">29</a></td></tr>
+    </tbody></table>
+    <h2>ADVENTURES OF SHERLOCK HOLMES<br><a id="i"></a>
+      <span class="ornate">Adventure I</span><br>A SCANDAL IN BOHEMIA</h2>
+    <p>Story one text with an inline glossary link
+      <a href="#term" class="pginternal">parallel</a>.</p>
+    <p><a id="term"></a>Glossary marker.</p>
+    <h2><a id="ii"></a><span class="ornate">Adventure II</span><br>THE RED-HEADED LEAGUE</h2>
+    <p>Story two text.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert headings == [
+        "Adventure I A SCANDAL IN BOHEMIA",
+        "Adventure II THE RED-HEADED LEAGUE",
+    ]
+
+
+def test_dense_chapter_index_paragraph_falls_back_to_heading_scan():
+    html = _make_html("""
+    <p>
+      <a href="#preface" class="pginternal">PREFACE.</a>
+      Chapter:
+      <a href="#ch1" class="pginternal">I.,</a>
+      <a href="#ch2" class="pginternal">II.,</a>
+      <a href="#ch3" class="pginternal">III.</a>
+    </p>
+    <h2><a id="preface"></a>PREFACE</h2>
+    <p>Preface paragraph.</p>
+    <h2><a id="ch1"></a>CHAPTER I</h2>
+    <p>Chapter one paragraph.</p>
+    <h2><a id="ch2"></a>CHAPTER II</h2>
+    <p>Chapter two paragraph.</p>
+    <h2><a id="ch3"></a>CHAPTER III</h2>
+    <p>Chapter three paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert headings == ["CHAPTER I", "CHAPTER II", "CHAPTER III"]
+
+
 # ------------------------------------------------------------------
 # Chunk kind coverage
 # ------------------------------------------------------------------
