@@ -1613,25 +1613,31 @@ def _cmd_search(args: argparse.Namespace) -> int:
                 else:
                     div_path = section_arg
 
-        search_filters = {
-            "author": args.author,
-            "title": args.title,
-            "book_id": args.book,
-            "kind": None if args.kind == "all" else args.kind,
-            "div_path": div_path,
-        }
+        search_author = args.author
+        search_title = args.title
+        search_book_id = args.book
+        search_kind = None if args.kind == "all" else args.kind
+        search_div_path = div_path
 
         try:
             if args.count:
                 total_results = db.search_count(
                     search_query,
-                    **search_filters,
+                    author=search_author,
+                    title=search_title,
+                    book_id=search_book_id,
+                    kind=search_kind,
+                    div_path=search_div_path,
                 )
                 results = []
             else:
                 search_page = db.search_page(
                     search_query,
-                    **search_filters,
+                    author=search_author,
+                    title=search_title,
+                    book_id=search_book_id,
+                    kind=search_kind,
+                    div_path=search_div_path,
                     mode=args.mode,
                     limit=limit,
                 )
