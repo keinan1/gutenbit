@@ -27,6 +27,7 @@ with Database("gutenbit.db") as db:
 ```bash
 gutenbit catalog --author "Austen, Jane"
 gutenbit add 1342
+gutenbit books --update                               # refresh stale stored books
 gutenbit search "pride"                                     # text chunks by default
 gutenbit search "chapter" --book 1342 --kind heading       # search headings only
 gutenbit view 1342 --section 1 --forward 5

@@ -45,16 +45,28 @@ Books already stored at the current chunker version are skipped. IDs that map to
 
 ## books
 
-List all books stored in the database.
+List all books stored in the database, or update stored books whose parser version is stale.
 
 ```bash
 gutenbit books
 gutenbit books --json
+gutenbit books --update
+gutenbit books --update --force
+gutenbit books --update --dry-run
 ```
 
 | Flag | Description |
 |------|-------------|
+| `--update` | Reprocess stored books whose parser version is stale |
+| `--delay SECONDS` | Pause between downloads in update mode (default: 1.0) |
+| `--force` | Reprocess all stored books in update mode, even if already current |
+| `--dry-run` | Show which stored books would be updated without downloading |
 | `--json` | Output as JSON |
+
+Without `--update`, `books` behaves exactly as before and just lists stored books.
+With `--update`, gutenbit checks the local database and reprocesses only books whose
+stored text is out of date for the current chunker version. `--force` refreshes every
+stored book, and `--dry-run` reports what would be refreshed without doing any work.
 
 ## delete
 
