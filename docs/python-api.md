@@ -129,12 +129,12 @@ results = db.search("battle", title="War")
 
 Metadata filters (`author`, `title`, `language`, `subject`) use substring matching. `book_id` and `kind` are exact.
 
-**Modes** control result ordering:
+**Order** controls result ordering:
 
 ```python
-db.search("battle", mode="ranked")  # BM25 score (default)
-db.search("battle", mode="first")   # book_id asc, position asc
-db.search("battle", mode="last")    # book_id desc, position desc
+db.search("battle", order="ranked")  # BM25 score (default)
+db.search("battle", order="first")   # book_id asc, position asc
+db.search("battle", order="last")    # book_id desc, position desc
 ```
 
 **Limit** controls the maximum number of results:
