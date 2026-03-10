@@ -95,12 +95,13 @@ with Database("gutenbit.db") as db:
     db.ingest(books)
 ```
 
-`ingest` downloads each book's HTML from Project Gutenberg, parses it into chunks, and stores everything in the database. Books already present (at the current chunker version) are skipped.
+`ingest` downloads each book's HTML from Project Gutenberg, parses it into chunks, and stores everything in the database. Books already present (at the current chunker version) are skipped unless you pass `force=True`.
 
 The `delay` parameter controls the pause between downloads. The default is 1 second, which is polite to Gutenberg's servers:
 
 ```python
 db.ingest(books, delay=2.0)
+db.ingest(books, force=True)  # reprocess even if already current
 ```
 
 ### Search
@@ -238,6 +239,7 @@ Returns the full reconstructed text (all chunks joined with double newlines), or
 
 ```python
 all_books = db.books()             # list of BookRecord
+stale_books = db.stale_books()     # stored books that need reprocessing
 book = db.book(1342)               # BookRecord or None
 db.has_text(1342)                  # True if stored
 db.has_current_text(1342)          # True if stored at current chunker version

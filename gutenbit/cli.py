@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any, TypedDict
 
-from gutenbit.catalog import Catalog
-from gutenbit.db import ChunkRecord, Database, _div_parts_match, _normalize_div_segment
+from gutenbit.catalog import BookRecord, Catalog, CatalogFetchInfo
+from gutenbit.db import ChunkRecord, Database, TextState, _div_parts_match, _normalize_div_segment
 from gutenbit.display import CliDisplay, format_summary_stats
 
 DEFAULT_DB = "gutenbit.db"
@@ -71,6 +71,41 @@ def _display() -> CliDisplay:
     if _DISPLAY_CACHE is None or _DISPLAY_CACHE[:2] != cache_key:
         _DISPLAY_CACHE = (*cache_key, CliDisplay(stdout=stdout, stderr=stderr))
     return _DISPLAY_CACHE[2]
+
+
+def _catalog_cache_dir_for_db(db_path: str | Path) -> Path:
+    resolved_db = Path(db_path).expanduser()
+    if not resolved_db.is_absolute():
+        resolved_db = (Path.cwd() / resolved_db).resolve()
+    return resolved_db.parent / ".gutenbit" / "cache"
+
+
+def _catalog_status_message(fetch_info: CatalogFetchInfo | None, *, refresh: bool) -> str:
+    corpus = "English text corpus"
+    if fetch_info is None:
+        return f"Loading catalog ({corpus})."
+    if fetch_info.source == "cache":
+        return f"Using cached catalog ({corpus})."
+    if fetch_info.source == "stale_cache":
+        return f"Catalog download failed; using stale cached catalog ({corpus})."
+    if refresh:
+        return f"Refreshed catalog from Project Gutenberg ({corpus})."
+    return f"Downloaded catalog from Project Gutenberg ({corpus})."
+
+
+def _load_catalog(args: argparse.Namespace, *, display: CliDisplay, as_json: bool) -> Catalog:
+    catalog = Catalog.fetch(
+        cache_dir=_catalog_cache_dir_for_db(args.db),
+        refresh=getattr(args, "refresh", False),
+    )
+    if not as_json:
+        display.status(
+            _catalog_status_message(
+                catalog.fetch_info,
+                refresh=getattr(args, "refresh", False),
+            )
+        )
+    return catalog
 
 
 def _normalize_apostrophes(s: str) -> str:
@@ -604,6 +639,14 @@ def _add_global_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_catalog_cache_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="ignore the catalog cache and redownload it now",
+    )
+
+
 def _opening_rows(db: Database, book_id: int, n: int) -> list[ChunkRecord]:
     """Return a default reading window, skipping common front-matter headings.
 
@@ -712,11 +755,12 @@ all data is stored in a local SQLite database (default: gutenbit.db).""",
         "catalog",
         formatter_class=fmt,
         help="search the Project Gutenberg catalog",
-        description="Search the full Project Gutenberg catalog (downloaded on each run).",
+        description="Search the Project Gutenberg catalog (cached for 2 hours by default).",
         epilog="""\
 examples:
   gutenbit catalog --author Tolstoy
   gutenbit catalog --title "War and Peace"
+  gutenbit catalog --author Dickens --refresh
   gutenbit catalog --language en --subject Philosophy --limit 50
 
 output columns:  ID  AUTHORS  TITLE
@@ -728,6 +772,7 @@ all filters use case-insensitive substring matching (AND logic).""",
     cat.add_argument("--subject", default="", help="filter by subject (substring match)")
     cat.add_argument("--limit", type=int, default=20, help="max results (default: 20)")
     cat.add_argument("--json", action="store_true", help="output as JSON")
+    _add_catalog_cache_args(cat)
     _add_global_args(cat)
 
     # --- add ---
@@ -744,6 +789,7 @@ all filters use case-insensitive substring matching (AND logic).""",
 examples:
   gutenbit add 2600                     # War and Peace
   gutenbit add 46 730 967               # multiple books
+  gutenbit add 2600 --refresh           # redownload the catalog first
   gutenbit add 2600 --delay 2.0         # polite crawling""",
     )
     add.add_argument("book_ids", nargs="+", type=int, help="Project Gutenberg book IDs")
@@ -754,6 +800,7 @@ examples:
         help="seconds between downloads (default: 1.0)",
     )
     add.add_argument("--json", action="store_true", help="output as JSON")
+    _add_catalog_cache_args(add)
     _add_global_args(add)
 
     # --- delete ---
@@ -781,15 +828,41 @@ if a book ID is not present, a warning is printed and exit code is 1.""",
     bk = sub.add_parser(
         "books",
         formatter_class=fmt,
-        help="list books stored in the database",
-        description="List all books that have been added to the database.",
+        help="list or update books stored in the database",
+        description=(
+            "List all books that have been added to the database. With --update, "
+            "reprocess stored books whose parser version is stale."
+        ),
         epilog="""\
 examples:
   gutenbit books
   gutenbit books --json
+  gutenbit books --update
+  gutenbit books --update --force
   gutenbit books --db my.db
 
 output columns:  ID  AUTHORS  TITLE""",
+    )
+    bk.add_argument(
+        "--update",
+        action="store_true",
+        help="reprocess stored books whose parser version is stale",
+    )
+    bk.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="seconds between downloads in update mode (default: 1.0)",
+    )
+    bk.add_argument(
+        "--force",
+        action="store_true",
+        help="reprocess all stored books in update mode, even if already current",
+    )
+    bk.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="show which stored books would be updated without downloading",
     )
     bk.add_argument("--json", action="store_true", help="output as JSON")
     _add_global_args(bk)
@@ -991,9 +1064,7 @@ def _cmd_catalog(args: argparse.Namespace) -> int:
     if args.limit <= 0:
         return _command_error("catalog", "--limit must be > 0.", as_json=as_json)
 
-    if not as_json:
-        display.status("Fetching catalog from Project Gutenberg (English text corpus)...")
-    catalog = Catalog.fetch()
+    catalog = _load_catalog(args, display=display, as_json=as_json)
     results = catalog.search(
         author=args.author,
         title=args.title,
@@ -1011,6 +1082,10 @@ def _cmd_catalog(args: argparse.Namespace) -> int:
                 "subject": args.subject,
             },
             "limit": args.limit,
+            "catalog_source": catalog.fetch_info.source if catalog.fetch_info else "unknown",
+            "catalog_cache_path": (
+                str(catalog.fetch_info.cache_path) if catalog.fetch_info else ""
+            ),
             "total_matches": len(results),
             "shown": len(shown),
             "items": [_book_payload(book) for book in shown],
@@ -1024,6 +1099,78 @@ def _cmd_catalog(args: argparse.Namespace) -> int:
 
     display.catalog(shown, remaining_count=len(results) - len(shown))
     return 0
+
+
+def _ingest_one_book(
+    db: Database,
+    book: BookRecord,
+    *,
+    state: TextState,
+    delay: float,
+    as_json: bool,
+    force: bool = False,
+) -> bool:
+    if as_json:
+        previous_disable = logging.root.manager.disable
+        logging.disable(logging.CRITICAL)
+        try:
+            return db._ingest_book(book, delay=delay, force=force, state=state)
+        finally:
+            logging.disable(previous_disable)
+
+    return db._ingest_book(book, delay=delay, force=force, state=state)
+
+
+def _process_books_for_ingest(
+    db: Database,
+    books: list[BookRecord],
+    *,
+    delay: float,
+    as_json: bool,
+    display: CliDisplay,
+    failure_action: str,
+    force: bool = False,
+    show_skipped_current: bool = True,
+) -> tuple[dict[int, str], list[str]]:
+    statuses: dict[int, str] = {}
+    errors: list[str] = []
+    states = db.text_states([book.id for book in books])
+    for book in books:
+        title = _single_line(book.title)
+        state = states.get(book.id, TextState(has_text=False, has_current_text=False))
+        if state.has_current_text and not force:
+            statuses[book.id] = "skipped_current"
+            if not as_json and show_skipped_current:
+                display.status(f"  skipping {book.id}: {title} (already downloaded)")
+            continue
+
+        target_status = "reprocessed" if state.has_text else "added"
+        if not as_json:
+            if state.has_text:
+                reason = "forced" if force else "chunker updated"
+                display.status(f"  reprocessing {book.id}: {title} ({reason})...")
+            else:
+                display.status(f"  adding {book.id}: {title}...")
+
+        success = _ingest_one_book(
+            db,
+            book,
+            state=state,
+            delay=delay,
+            as_json=as_json,
+            force=force,
+        )
+
+        if success:
+            statuses[book.id] = target_status
+        else:
+            statuses[book.id] = "failed"
+            failure = f"Failed to {failure_action} {book.id}: {title}"
+            errors.append(failure)
+            if not as_json:
+                display.error(f"  failed {book.id}: {title}")
+
+    return statuses, errors
 
 
 def _cmd_add(args: argparse.Namespace) -> int:
@@ -1041,9 +1188,7 @@ def _cmd_add(args: argparse.Namespace) -> int:
             data={"invalid_ids": invalid_ids},
         )
 
-    if not as_json:
-        display.status("Fetching catalog...")
-    catalog = Catalog.fetch()
+    catalog = _load_catalog(args, display=display, as_json=as_json)
     selected_by_id: dict[int, Any] = {}
     request_results: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -1092,6 +1237,10 @@ def _cmd_add(args: argparse.Namespace) -> int:
     if not books:
         data = {
             "db": str(Path(args.db).resolve()),
+            "catalog_source": catalog.fetch_info.source if catalog.fetch_info else "unknown",
+            "catalog_cache_path": (
+                str(catalog.fetch_info.cache_path) if catalog.fetch_info else ""
+            ),
             "requested_ids": args.book_ids,
             "results": request_results,
         }
@@ -1103,43 +1252,15 @@ def _cmd_add(args: argparse.Namespace) -> int:
             warnings=warnings,
         )
 
-    canonical_statuses: dict[int, str] = {}
-    errors: list[str] = []
     with Database(args.db) as db:
-        for book in books:
-            title = _single_line(book.title)
-            was_current = db.has_current_text(book.id)
-            if was_current:
-                canonical_statuses[book.id] = "skipped_current"
-                if not as_json:
-                    display.status(f"  skipping {book.id}: {title} (already downloaded)")
-                continue
-            was_present = db.has_text(book.id)
-            target_status = "reprocessed" if was_present else "added"
-            if was_present:
-                if not as_json:
-                    display.status(f"  reprocessing {book.id}: {title} (chunker updated)...")
-            else:
-                if not as_json:
-                    display.status(f"  adding {book.id}: {title}...")
-            if as_json:
-                previous_disable = logging.root.manager.disable
-                logging.disable(logging.CRITICAL)
-                try:
-                    db.ingest([book], delay=args.delay)
-                finally:
-                    logging.disable(previous_disable)
-            else:
-                db.ingest([book], delay=args.delay)
-
-            if db.has_current_text(book.id):
-                canonical_statuses[book.id] = target_status
-            else:
-                canonical_statuses[book.id] = "failed"
-                failure = f"Failed to add {book.id}: {title}"
-                errors.append(failure)
-                if not as_json:
-                    display.error(f"  failed {book.id}: {title}")
+        canonical_statuses, errors = _process_books_for_ingest(
+            db,
+            books,
+            delay=args.delay,
+            as_json=as_json,
+            display=display,
+            failure_action="add",
+        )
 
     if as_json:
         result_rows: list[dict[str, Any]] = []
@@ -1162,6 +1283,10 @@ def _cmd_add(args: argparse.Namespace) -> int:
 
         data = {
             "db": str(Path(args.db).resolve()),
+            "catalog_source": catalog.fetch_info.source if catalog.fetch_info else "unknown",
+            "catalog_cache_path": (
+                str(catalog.fetch_info.cache_path) if catalog.fetch_info else ""
+            ),
             "delay_seconds": args.delay,
             "requested_ids": args.book_ids,
             "unique_canonical_ids": sorted(selected_by_id.keys()),
@@ -1192,8 +1317,192 @@ def _cmd_add(args: argparse.Namespace) -> int:
 def _cmd_books(args: argparse.Namespace) -> int:
     as_json = getattr(args, "json", False)
     display = _display()
+    if not args.update:
+        if args.delay != 1.0:
+            return _command_error(
+                "books",
+                "--delay can only be used with --update.",
+                as_json=as_json,
+            )
+        if args.force:
+            return _command_error(
+                "books",
+                "--force can only be used with --update.",
+                as_json=as_json,
+            )
+        if args.dry_run:
+            return _command_error(
+                "books",
+                "--dry-run can only be used with --update.",
+                as_json=as_json,
+            )
+    elif args.delay < 0:
+        return _command_error("books", "--delay must be >= 0.", as_json=as_json)
+
     with Database(args.db) as db:
         books = db.books()
+        if args.update:
+            db_path = str(Path(args.db).resolve())
+            stored_count = len(books)
+            selected_books = books if args.force else db.stale_books()
+            selected_count = len(selected_books)
+            skipped_current = 0 if args.force else stored_count - selected_count
+
+            if not books:
+                if as_json:
+                    _print_json_envelope(
+                        "books",
+                        ok=True,
+                        data={
+                            "action": "update",
+                            "db": db_path,
+                            "delay_seconds": args.delay,
+                            "force": args.force,
+                            "dry_run": args.dry_run,
+                            "counts": {
+                                "stored": 0,
+                                "selected": 0,
+                                "updated": 0,
+                                "skipped_current": 0,
+                                "failed": 0,
+                            },
+                            "results": [],
+                        },
+                    )
+                else:
+                    display.status("No books stored yet. Use 'gutenbit add <id> ...' to add some.")
+                return 0
+
+            if args.dry_run:
+                results = [
+                    {
+                        "book_id": book.id,
+                        "title": _single_line(book.title),
+                        "status": "selected",
+                    }
+                    for book in selected_books
+                ]
+                if as_json:
+                    _print_json_envelope(
+                        "books",
+                        ok=True,
+                        data={
+                            "action": "update",
+                            "db": db_path,
+                            "delay_seconds": args.delay,
+                            "force": args.force,
+                            "dry_run": True,
+                            "counts": {
+                                "stored": stored_count,
+                                "selected": selected_count,
+                                "updated": 0,
+                                "skipped_current": skipped_current,
+                                "failed": 0,
+                            },
+                            "results": results,
+                        },
+                    )
+                elif selected_books:
+                    display.status(
+                        f"Would reprocess {selected_count} of {stored_count} stored book(s):"
+                    )
+                    for book in selected_books:
+                        display.status(f"  {book.id}: {_single_line(book.title)}")
+                else:
+                    display.status(
+                        f"All {stored_count} stored book(s) are current. Database: {db_path}"
+                    )
+                return 0
+
+            if not selected_books:
+                if as_json:
+                    _print_json_envelope(
+                        "books",
+                        ok=True,
+                        data={
+                            "action": "update",
+                            "db": db_path,
+                            "delay_seconds": args.delay,
+                            "force": args.force,
+                            "dry_run": False,
+                            "counts": {
+                                "stored": stored_count,
+                                "selected": 0,
+                                "updated": 0,
+                                "skipped_current": skipped_current,
+                                "failed": 0,
+                            },
+                            "results": [],
+                        },
+                    )
+                else:
+                    display.success(
+                        f"All {stored_count} stored book(s) are current. Database: {db_path}"
+                    )
+                return 0
+
+            if not as_json:
+                display.status(f"Checking {stored_count} stored book(s)...")
+
+            statuses, errors = _process_books_for_ingest(
+                db,
+                selected_books,
+                delay=args.delay,
+                as_json=as_json,
+                display=display,
+                failure_action="update",
+                force=args.force,
+                show_skipped_current=False,
+            )
+            updated_count = sum(
+                1 for status in statuses.values() if status in {"added", "reprocessed"}
+            )
+            failed_count = sum(1 for status in statuses.values() if status == "failed")
+            results = [
+                {
+                    "book_id": book.id,
+                    "title": _single_line(book.title),
+                    "status": statuses[book.id],
+                }
+                for book in selected_books
+            ]
+
+            if as_json:
+                _print_json_envelope(
+                    "books",
+                    ok=failed_count == 0,
+                    data={
+                        "action": "update",
+                        "db": db_path,
+                        "delay_seconds": args.delay,
+                        "force": args.force,
+                        "dry_run": False,
+                        "counts": {
+                            "stored": stored_count,
+                            "selected": selected_count,
+                            "updated": updated_count,
+                            "skipped_current": skipped_current,
+                            "failed": failed_count,
+                        },
+                        "results": results,
+                    },
+                    errors=errors,
+                )
+                return 0 if failed_count == 0 else 1
+
+            if failed_count:
+                display.error(
+                    "Completed with "
+                    f"{failed_count} failure(s). Updated {updated_count} book(s); "
+                    f"{skipped_current} already current. Database: {db_path}"
+                )
+                return 1
+            display.success(
+                f"Done. Updated {updated_count} book(s); "
+                f"{skipped_current} already current. Database: {db_path}"
+            )
+            return 0
+
     if not books:
         if as_json:
             _print_json_envelope(
@@ -1360,25 +1669,31 @@ def _cmd_search(args: argparse.Namespace) -> int:
                 else:
                     div_path = section_arg
 
-        search_filters = {
-            "author": args.author,
-            "title": args.title,
-            "book_id": args.book,
-            "kind": None if args.kind == "all" else args.kind,
-            "div_path": div_path,
-        }
+        search_author = args.author
+        search_title = args.title
+        search_book_id = args.book
+        search_kind = None if args.kind == "all" else args.kind
+        search_div_path = div_path
 
         try:
             if args.count:
                 total_results = db.search_count(
                     search_query,
-                    **search_filters,
+                    author=search_author,
+                    title=search_title,
+                    book_id=search_book_id,
+                    kind=search_kind,
+                    div_path=search_div_path,
                 )
                 results = []
             else:
                 search_page = db.search_page(
                     search_query,
-                    **search_filters,
+                    author=search_author,
+                    title=search_title,
+                    book_id=search_book_id,
+                    kind=search_kind,
+                    div_path=search_div_path,
                     mode=args.mode,
                     limit=limit,
                 )

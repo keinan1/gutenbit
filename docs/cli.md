@@ -11,6 +11,7 @@ Search the Project Gutenberg catalog for books by metadata.
 ```bash
 gutenbit catalog --author "Dickens"
 gutenbit catalog --title "Christmas" --author "Dickens"
+gutenbit catalog --author "Dickens" --refresh
 gutenbit catalog --subject "Philosophy" --limit 50
 ```
 
@@ -21,9 +22,10 @@ gutenbit catalog --subject "Philosophy" --limit 50
 | `--subject TEXT` | Filter by subject (substring match) |
 | `--language CODE` | Filter by language code (e.g. `en`) |
 | `--limit N` | Maximum results (default: 20) |
+| `--refresh` | Ignore the local catalog cache and redownload it now |
 | `--json` | Output as JSON |
 
-Filters combine with AND logic. All matching is case-insensitive. The catalog is fetched from Project Gutenberg on each call and filtered to English text records.
+Filters combine with AND logic. All matching is case-insensitive. The catalog is cached locally for two hours, filtered to English text records, and can be forced to redownload with `--refresh`.
 
 ## add
 
@@ -32,6 +34,7 @@ Download books from Project Gutenberg and store them in the database.
 ```bash
 gutenbit add 1342
 gutenbit add 46 730 967
+gutenbit add 1342 --refresh
 gutenbit add 2600 --delay 2.0
 ```
 
@@ -39,22 +42,35 @@ gutenbit add 2600 --delay 2.0
 |------|-------------|
 | `BOOK_IDS` | One or more Project Gutenberg IDs (positional) |
 | `--delay SECONDS` | Pause between downloads (default: 1.0) |
+| `--refresh` | Ignore the local catalog cache and redownload it now |
 | `--json` | Output as JSON |
 
 Books already stored at the current chunker version are skipped. IDs that map to a different canonical edition are remapped automatically.
 
 ## books
 
-List all books stored in the database.
+List all books stored in the database, or update stored books whose parser version is stale.
 
 ```bash
 gutenbit books
 gutenbit books --json
+gutenbit books --update
+gutenbit books --update --force
+gutenbit books --update --dry-run
 ```
 
 | Flag | Description |
 |------|-------------|
+| `--update` | Reprocess stored books whose parser version is stale |
+| `--delay SECONDS` | Pause between downloads in update mode (default: 1.0) |
+| `--force` | Reprocess all stored books in update mode, even if already current |
+| `--dry-run` | Show which stored books would be updated without downloading |
 | `--json` | Output as JSON |
+
+Without `--update`, `books` behaves exactly as before and just lists stored books.
+With `--update`, gutenbit checks the local database and reprocesses only books whose
+stored text is out of date for the current chunker version. `--force` refreshes every
+stored book, and `--dry-run` reports what would be refreshed without doing any work.
 
 ## delete
 

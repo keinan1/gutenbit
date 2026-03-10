@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, TextIO
 
@@ -443,7 +444,7 @@ class CliDisplay:
     def _print_text(self, text: str, *, style: str | None = None, err: bool = False) -> None:
         if self.interactive:
             console = self._err if err else self._out
-            console.print(Text(text, style=style))
+            console.print(Text(text, style=style or ""))
         else:
             print(text, file=self.stderr if err else self.stdout)
 
@@ -580,7 +581,7 @@ class CliDisplay:
         if remaining_count > 0:
             print(f"  ... and {remaining_count} more (use --limit to show more)", file=self.stdout)
 
-    def section_summary(self, summary: dict[str, Any]) -> None:
+    def section_summary(self, summary: Mapping[str, Any]) -> None:
         if not self.interactive:
             self._section_summary_plain(summary)
             return
@@ -621,7 +622,7 @@ class CliDisplay:
         if shelves:
             book_rows.append(("Shelves", shelves))
         for label, value in book_rows:
-            value_text = Text(value, style="title" if label == "Title" else None)
+            value_text = Text(value, style="title" if label == "Title" else "")
             book_grid.add_row(Text(label, style="muted"), value_text)
 
         toc_rows = _toc_rows(sections)
@@ -647,7 +648,7 @@ class CliDisplay:
             ],
         )
 
-    def _section_summary_plain(self, summary: dict[str, Any]) -> None:
+    def _section_summary_plain(self, summary: Mapping[str, Any]) -> None:
         self._begin_output()
         book = summary["book"]
         overview = summary["overview"]
