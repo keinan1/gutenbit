@@ -51,7 +51,12 @@ class Chunk:
 # ---------------------------------------------------------------------------
 
 _BROAD_KEYWORDS = frozenset({"book", "part", "act", "epilogue", "volume"})
-CHUNKER_VERSION = 15
+_STRUCTURAL_KEYWORD_ALIASES = {
+    "actus": "act",
+    "scena": "scene",
+    "scoena": "scene",
+}
+CHUNKER_VERSION = 16
 
 # Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
 # with no subtitle text — used to merge consecutive number + title headings.
@@ -62,7 +67,7 @@ _BARE_HEADING_NUMBER_RE = re.compile(
 )
 
 _HEADING_KEYWORD_RE = re.compile(
-    r"^(?:BOOK|PART|ACT|EPILOGUE|VOLUME|CHAPTER|STAVE|SCENE|SECTION|ADVENTURE)\.?\s",
+    r"^(?:BOOK|PART|ACT|ACTUS|EPILOGUE|VOLUME|CHAPTER|STAVE|SCENE|SCENA|SCOENA|SECTION|ADVENTURE)\.?\s",
     re.IGNORECASE,
 )
 _START_DELIMITER_RE = re.compile(
@@ -89,7 +94,7 @@ _PLAIN_NUMBER_HEADING_RE = re.compile(r"^(?:[IVXLCDM]+|[0-9]+)\.?$", re.IGNORECA
 _PAGE_HEADING_RE = re.compile(r"^(?:page|p\.)\s+\d+\b", re.IGNORECASE)
 _NON_STRUCTURAL_HEADING_RE = re.compile(
     r"^(?:notes?|footnotes?|endnotes?|transcriber's note|transcribers note|"
-    r"editor's note|editors note)\b",
+    r"editor's note|editors note|finis)\b",
     re.IGNORECASE,
 )
 _FRONT_MATTER_ATTRIBUTION_RE = re.compile(
@@ -106,6 +111,12 @@ _FRONT_MATTER_HEADINGS = frozenset(
 )
 
 _HEADING_TAGS = ("h1", "h2", "h3", "h4", "h5", "h6")
+_PLAY_HEADING_PARAGRAPH_RE = re.compile(
+    r"^(?:(?P<act>(?:ACTUS|ACT)\s+[A-Z0-9IVXLCDM]+\.?)"
+    r"(?:\s+(?P<scene>(?:SC(?:OE|E)NA|SCENE)\s+[A-Z0-9IVXLCDM]+\.?))?"
+    r"|(?P<scene_only>(?:SC(?:OE|E)NA|SCENE)\s+[A-Z0-9IVXLCDM]+\.?))$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,7 +403,7 @@ _FONT_SIZE_STYLE_RE = re.compile(
 
 @dataclass(frozen=True, slots=True)
 class _HeadingRow:
-    """One cleaned heading candidate used by heading-scan fallback."""
+    """One cleaned section candidate used by heading-scan fallback."""
 
     tag: Tag
     anchor: Tag
@@ -474,8 +485,20 @@ def _parse_heading_sections(
         anchor = heading.find("a", id=True) or heading
         heading_rows.append(_HeadingRow(heading, anchor, heading_text, rank))
 
+    heading_rows.extend(
+        _paragraph_heading_rows(
+            soup,
+            doc_index=doc_index,
+            bounds=bounds,
+        )
+    )
+
     if not heading_rows:
         return []
+
+    heading_rows.sort(
+        key=lambda row: _tag_position(row.tag, doc_index.tag_positions) or float("inf")
+    )
 
     start_idx = _fallback_start_index(heading_rows)
     if start_idx is None:
@@ -702,7 +725,8 @@ def _heading_keyword(heading_text: str) -> str:
     match = _HEADING_KEYWORD_RE.match(heading_text)
     if not match:
         return ""
-    return heading_text.split()[0].rstrip(".,:]").lower()
+    keyword = heading_text.split()[0].rstrip(".,:]").lower()
+    return _STRUCTURAL_KEYWORD_ALIASES.get(keyword, keyword)
 
 
 def _heading_key(heading_text: str) -> str:
@@ -739,9 +763,8 @@ def _classify_level(heading_text: str, is_emphasized_in_toc: bool) -> int:
     """Determine structural level: 1=broad (BOOK/PART), 2=chapter, 3=sub-chapter."""
     if is_emphasized_in_toc:
         return 1
-    m = _HEADING_KEYWORD_RE.match(heading_text)
-    if m:
-        keyword = heading_text.split()[0].rstrip(".,:]").lower()
+    keyword = _heading_keyword(heading_text)
+    if keyword:
         if keyword in _BROAD_KEYWORDS:
             return 1
         if keyword == "section":
@@ -1086,7 +1109,7 @@ def _fallback_start_index(heading_rows: list[_HeadingRow]) -> int | None:
     structural_rows = [
         (idx, row)
         for idx, row in enumerate(heading_rows)
-        if _HEADING_KEYWORD_RE.match(row.heading_text)
+        if _heading_keyword(row.heading_text)
     ]
     start_rows = structural_rows or list(enumerate(heading_rows))
     start_rank = min(row.rank for _, row in start_rows)
@@ -1094,6 +1117,43 @@ def _fallback_start_index(heading_rows: list[_HeadingRow]) -> int | None:
         if row.rank == start_rank:
             return idx
     return None
+
+
+def _paragraph_heading_rows(
+    soup: BeautifulSoup,
+    *,
+    doc_index: _DocumentIndex,
+    bounds: _ContentBounds,
+) -> list[_HeadingRow]:
+    """Return strict paragraph-based structural rows for heading-scan fallback."""
+    rows: list[_HeadingRow] = []
+    for paragraph in soup.find_all("p"):
+        if not _tag_within_bounds(paragraph, doc_index.tag_positions, bounds):
+            continue
+        if _is_toc_paragraph(paragraph):
+            continue
+        for heading_text in _split_play_heading_paragraph(
+            _clean_heading_text(_extract_paragraph_text(paragraph))
+        ):
+            rows.append(_HeadingRow(paragraph, paragraph, heading_text, 7))
+    return rows
+
+
+def _split_play_heading_paragraph(paragraph_text: str) -> list[str]:
+    """Split strict play-heading paragraphs into act/scene section labels."""
+    match = _PLAY_HEADING_PARAGRAPH_RE.fullmatch(paragraph_text)
+    if not match:
+        return []
+
+    parts: list[str] = []
+    act = match.group("act")
+    if act:
+        parts.append(_clean_heading_text(act))
+
+    scene = match.group("scene") or match.group("scene_only")
+    if scene:
+        parts.append(_clean_heading_text(scene))
+    return parts
 
 
 def _build_subtree_end_positions(
