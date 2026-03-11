@@ -56,7 +56,7 @@ _STRUCTURAL_KEYWORD_ALIASES = {
     "scena": "scene",
     "scoena": "scene",
 }
-CHUNKER_VERSION = 16
+CHUNKER_VERSION = 17
 
 # Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
 # with no subtitle text — used to merge consecutive number + title headings.
@@ -417,6 +417,8 @@ def _next_heading_is_subtitle(heading_text: str) -> bool:
         return False
     if _HEADING_KEYWORD_RE.match(heading_text):
         return False
+    if _is_dialogue_speaker_heading(heading_text):
+        return False
     # Reject if the text contains an embedded structural heading pattern
     # (e.g. "I hope Mr. Bingley will like it. CHAPTER II"), but allow
     # incidental uses of keywords as ordinary words (e.g. "ACT OF PARLIAMENT",
@@ -509,7 +511,16 @@ def _parse_heading_sections(
     while i < len(heading_rows):
         row = heading_rows[i]
         heading_text = row.heading_text
+        previous_row = heading_rows[i - 1] if i > 0 else None
         next_row = heading_rows[i + 1] if i + 1 < len(heading_rows) else None
+
+        if _is_dialogue_speaker_heading(heading_text) or _is_single_speaker_dialogue_heading(
+            heading_text,
+            previous_heading=previous_row.heading_text if previous_row else None,
+            next_heading=next_row.heading_text if next_row else None,
+        ):
+            i += 1
+            continue
 
         if next_row is not None and _is_editorial_placeholder_heading(
             row,
@@ -1275,6 +1286,30 @@ def _is_dialogue_speaker_heading(heading_text: str) -> bool:
         if part != part.upper():
             return False
     return True
+
+
+def _is_single_speaker_dialogue_heading(
+    heading_text: str,
+    *,
+    previous_heading: str | None,
+    next_heading: str | None,
+) -> bool:
+    """Return True for uppercase single-speaker headings within dialogue runs."""
+    if _heading_keyword(heading_text):
+        return False
+    if _STANDALONE_STRUCTURAL_RE.search(heading_text):
+        return False
+    if heading_text != heading_text.upper():
+        return False
+
+    words = heading_text.split()
+    if not 1 <= len(words) <= 3:
+        return False
+    if not all(any(char.isalpha() for char in word) for word in words):
+        return False
+
+    adjacent_headings = [text for text in (previous_heading, next_heading) if text]
+    return any(_is_dialogue_speaker_heading(text) for text in adjacent_headings)
 
 
 def _normalized_heading_continuation(

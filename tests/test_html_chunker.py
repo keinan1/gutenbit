@@ -779,7 +779,7 @@ def test_heading_scan_skips_editorial_placeholder_heading():
     ]
 
 
-def test_heading_scan_keeps_dialogue_subheadings_after_book_start():
+def test_heading_scan_skips_dialogue_subheadings_after_book_start():
     html = _make_html("""
     <h2>BOOK I</h2>
     <h4>SOCRATES - GLAUCON</h4>
@@ -789,14 +789,14 @@ def test_heading_scan_keeps_dialogue_subheadings_after_book_start():
     """)
     chunks = chunk_html(html)
     headings = [c for c in chunks if c.kind == "heading"]
+    paragraphs = [c for c in chunks if c.kind == "text"]
 
-    assert [h.content for h in headings] == [
-        "BOOK I SOCRATES - GLAUCON",
-        "SOCRATES - THRASYMACHUS",
-    ]
+    assert [h.content for h in headings] == ["BOOK I"]
+    assert all(paragraph.div1 == "BOOK I" for paragraph in paragraphs)
+    assert all(not paragraph.div2 for paragraph in paragraphs)
 
 
-def test_heading_scan_keeps_repeated_dialogue_speakers_nested_under_each_book():
+def test_heading_scan_keeps_repeated_books_without_dialogue_speakers():
     html = _make_html("""
     <h2>BOOK I</h2>
     <h4>SOCRATES - GLAUCON</h4>
@@ -817,16 +817,22 @@ def test_heading_scan_keeps_repeated_dialogue_speakers_nested_under_each_book():
     <h4>SOCRATES - GLAUCON</h4>
     <p>Dialogue paragraph seven.</p>
     """)
-    headings = [c for c in chunk_html(html) if c.kind == "heading"]
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    paragraphs = [c for c in chunks if c.kind == "text"]
 
-    book_headings = [h for h in headings if h.content.startswith("BOOK")]
-    assert [h.div1 for h in book_headings] == [
-        "BOOK I SOCRATES - GLAUCON",
-        "BOOK II SOCRATES - GLAUCON",
-        "BOOK III SOCRATES - GLAUCON",
-        "BOOK IV SOCRATES - GLAUCON",
+    assert [h.content for h in headings] == ["BOOK I", "BOOK II", "BOOK III", "BOOK IV"]
+    assert all(not h.div2 for h in headings)
+    assert [paragraph.div1 for paragraph in paragraphs] == [
+        "BOOK I",
+        "BOOK I",
+        "BOOK II",
+        "BOOK II",
+        "BOOK III",
+        "BOOK III",
+        "BOOK IV",
     ]
-    assert all(not h.div2 for h in book_headings)
+    assert all(not paragraph.div2 for paragraph in paragraphs)
 
 
 def test_heading_scan_uses_non_keyword_headings_when_no_structural_keywords_exist():
@@ -1080,6 +1086,33 @@ def test_paragraph_play_headings_reset_scene_hierarchy_on_new_act():
     assert headings[4].div2 == "Scena Prima"
     assert paragraphs[2].div1 == "Actus Secundus"
     assert paragraphs[2].div2 == "Scena Prima"
+
+
+def test_dialogue_speaker_headings_do_not_replace_book_structure():
+    html = _make_html("""
+    <h1>BOOK I</h1>
+    <h4>SOCRATES - GLAUCON</h4>
+    <p>Book one opening paragraph.</p>
+    <h5>GLAUCON</h5>
+    <p>Another book one paragraph.</p>
+    <h2>BOOK II</h2>
+    <h4>SOCRATES - GLAUCON</h4>
+    <h5>ADEIMANTUS</h5>
+    <p>Book two opening paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    paragraphs = [c for c in chunks if c.kind == "text"]
+
+    assert [h.content for h in headings] == ["BOOK I", "BOOK II"]
+    assert all("SOCRATES" not in h.content for h in headings)
+    assert all("GLAUCON" not in h.content for h in headings)
+    assert paragraphs[0].div1 == "BOOK I"
+    assert paragraphs[0].div2 == ""
+    assert paragraphs[1].div1 == "BOOK I"
+    assert paragraphs[1].div2 == ""
+    assert paragraphs[2].div1 == "BOOK II"
+    assert paragraphs[2].div2 == ""
 
 
 # ------------------------------------------------------------------

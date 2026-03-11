@@ -196,3 +196,23 @@ def test_macbeth_uses_paragraph_fallback_for_full_play_structure():
         if heading.content == "Scena Prima" and heading.div1 == "Actus Secundus"
     )
     assert act_two_scene_one.div2 == "Scena Prima"
+
+
+def test_republic_preserves_book_headings_over_dialogue_speakers():
+    headings = _headings(150)
+    heading_texts = [heading.content for heading in headings]
+
+    assert heading_texts == [
+        "BOOK I",
+        "BOOK II",
+        "BOOK III",
+        "BOOK IV",
+        "BOOK V",
+        "BOOK VI",
+        "BOOK VII",
+        "BOOK VIII",
+        "BOOK IX",
+        "BOOK X",
+    ]
+    assert all("-" not in heading.content for heading in headings)
+    assert all(heading.div2 == "" for heading in headings)
