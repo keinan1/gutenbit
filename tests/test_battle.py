@@ -300,3 +300,9 @@ def test_middlemarch_keeps_the_finale_section():
     heading_texts = [heading.content for heading in _headings(145)]
 
     assert heading_texts[-2:] == ["FINALE", "THE END"]
+
+
+def test_jane_eyre_keeps_preface_and_note_before_chapter_one():
+    heading_texts = [heading.content for heading in _headings(1260)]
+
+    assert heading_texts[:4] == ["PREFACE", "NOTE TO THE THIRD EDITION", "CHAPTER I", "CHAPTER II"]
