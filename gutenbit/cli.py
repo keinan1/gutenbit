@@ -1074,7 +1074,8 @@ section numbers in this output can be passed to:
             "Read from the first structural section by default, or focus from an exact position "
             "or section selector. Section selectors accept path text or a section "
             "number from `gutenbit toc <book>`. Use --forward for forward reading, "
-            "--radius for surrounding passage windows, or --all for a full book or section."
+            "--radius for surrounding passage windows, or --all for a full book or selected "
+            "section subtree."
         ),
         epilog="""\
 examples:
@@ -1082,7 +1083,7 @@ examples:
   gutenbit view 1342                                 # first structural section + quick actions
   gutenbit view 1342 --all                           # full reconstructed text
   gutenbit view 1342 --section 1                     # first passage in section 1
-  gutenbit view 1342 --section 1 --all               # full section
+  gutenbit view 1342 --section 1 --all               # full section, including nested subsections
   gutenbit view 1342 --section 1 --forward 5         # first 5 passages in section 1
   gutenbit view 1342 --section 1 --radius 1          # surrounding passage around the section start
   gutenbit view 1342 --position 1                    # passage at position 1
@@ -1106,7 +1107,10 @@ selectors (choose at most one):
     vw.add_argument(
         "--all",
         action="store_true",
-        help="read the full selected scope (whole book or whole section)",
+        help=(
+            "read the full selected scope "
+            "(whole book or selected section, including nested subsections)"
+        ),
     )
     vw.add_argument(
         "--forward",
@@ -1657,9 +1661,7 @@ def _cmd_delete(args: argparse.Namespace) -> int:
                 errors.append(message)
                 results.append({"book_id": book_id, "status": "missing"})
                 if not as_json:
-                    display.error(
-                        f"No book found for {_book_id_ref(book_id, capitalize=False)}."
-                    )
+                    display.error(f"No book found for {_book_id_ref(book_id, capitalize=False)}.")
                 any_missing = True
             else:
                 deleted_count += 1
@@ -2106,6 +2108,7 @@ def _print_passage(
 ) -> None:
     _display().passage(payload, action_hints=action_hints, footer_stats=footer_stats)
 
+
 def _view_action_hints(book_id: int, summary: _SectionSummary | None) -> dict[str, str]:
     quick_actions: _QuickActions = (
         summary["quick_actions"]
@@ -2198,9 +2201,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
 
     radius = args.radius
     requested_forward = (
-        None
-        if radius is not None or args.all
-        else _effective_forward(DEFAULT_VIEW_FORWARD)
+        None if radius is not None or args.all else _effective_forward(DEFAULT_VIEW_FORWARD)
     )
     requested_all = True if args.all else None
     with Database(args.db) as db:
@@ -2274,9 +2275,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
                 forward = _effective_forward(DEFAULT_VIEW_FORWARD)
                 all_scope = None
                 rows = [
-                    row
-                    for row in db.chunk_records(args.book)
-                    if row.position >= args.position
+                    row for row in db.chunk_records(args.book) if row.position >= args.position
                 ]
                 rows = rows[:forward]
             record = _view_payload(
@@ -2454,9 +2453,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
             rows = db.chunks_by_div(args.book, resolved_section, limit=0)
             if not rows:
                 examples = _section_examples(db, args.book)
-                message = (
-                    f"No chunks found for book {args.book} under section '{section_query}'."
-                )
+                message = f"No chunks found for book {args.book} under section '{section_query}'."
                 display_message = (
                     f"No chunks found for {_book_id_ref(args.book, capitalize=False)} "
                     f"under section '{section_query}'."
@@ -2569,9 +2566,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
                 display_message=_no_chunks_display_message(db, args.book),
                 data=_view_payload(
                     section=first_section["section"] if first_section else None,
-                    section_number=(
-                        first_section["section_number"] if first_section else None
-                    ),
+                    section_number=(first_section["section_number"] if first_section else None),
                     position=first_section["position"] if first_section else None,
                     forward=forward,
                     radius=None,

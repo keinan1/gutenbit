@@ -85,6 +85,8 @@ Read a full section:
 gutenbit view 1342 --section 1 --all
 ```
 
+If the selected section has nested subsections, `--all` includes the entire subtree. For example, selecting an act includes all of its scenes.
+
 Read from an exact chunk position:
 
 ```bash
@@ -98,7 +100,7 @@ gutenbit view 1342 --position 1 --radius 2
 gutenbit view 1342 --section 1 --radius 2
 ```
 
-Use `--forward` for forward reading, `--radius` for a surrounding passage window, and `--all` for a full book or section. `--all` does not apply to `--position`.
+Use `--forward` for forward reading, `--radius` for a surrounding passage window, and `--all` for a full book or selected section subtree. `--all` does not apply to `--position`.
 
 ### Search
 

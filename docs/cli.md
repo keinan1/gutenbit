@@ -204,8 +204,9 @@ Read stored book text. Starts at the first structural section by default. Use se
 gutenbit view 1342                              # first structural section
 gutenbit view 1342 --all                        # full book
 gutenbit view 1342 --section 1                  # section by number
-gutenbit view 1342 --section 1 --all            # full section
+gutenbit view 1342 --section 1 --all            # full section, including nested subsections
 gutenbit view 1342 --section "Chapter 1" --forward 10  # section by path
+gutenbit view 100 --section "ALL’S WELL THAT ENDS WELL / ACT I" --all  # full act incl. scenes
 gutenbit view 1342 --position 1 --forward 5           # from exact position
 gutenbit view 1342 --position 1 --radius 2     # surrounding passage around position
 gutenbit view 1342 --section 1 --radius 2       # surrounding passage around section start
@@ -216,12 +217,12 @@ gutenbit view 1342 --section 1 --radius 2       # surrounding passage around sec
 | `BOOK_ID` | Project Gutenberg book ID (positional) |
 | `--section SELECTOR` | Section number (from `toc`) or path prefix (e.g. `"BOOK I/CHAPTER I"`) |
 | `--position N` | Exact chunk position |
-| `--all` | Read the full selected scope (whole book or whole section) |
+| `--all` | Read the full selected scope (whole book or selected section, including nested subsections) |
 | `--forward N` | Passages to read forward (default: 3 for opening, 1 for section/position) |
 | `--radius N` | Surrounding passage to include on each side of the selected center passage |
 | `--json` | Output as JSON |
 
-Use `--section` or `--position`, not both. `--forward`, `--radius`, and `--all` are mutually exclusive in `view`. Use `--all` for a whole book or whole section; it does not apply to `--position`. Run `toc` first to see available section numbers.
+Use `--section` or `--position`, not both. `--forward`, `--radius`, and `--all` are mutually exclusive in `view`. Use `--all` for a whole book or selected section subtree; choosing a parent section such as a play or act includes its nested descendants. `--all` does not apply to `--position`. Run `toc` first to see available section numbers.
 
 ## JSON output
 
