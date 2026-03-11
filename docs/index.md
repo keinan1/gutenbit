@@ -21,8 +21,6 @@ uv tool install git+https://github.com/keinan1/gutenbit
 Then run `gutenbit --help`. Remove it later with `uv tool uninstall gutenbit`.
 Gutenbit stores its database and catalog cache in a `.gutenbit/` folder.
 
-If `gutenbit` is not found after install, run `uv tool update-shell` once and restart your shell.
-
 ## Python in 30 seconds
 
 ```python
