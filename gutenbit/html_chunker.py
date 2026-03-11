@@ -574,13 +574,8 @@ def _parse_heading_sections(
         anchor = heading.find("a", id=True) or heading
         heading_rows.append(_HeadingRow(heading, anchor, heading_text, rank))
 
-    heading_rows.extend(
-        _paragraph_heading_rows(
-            soup,
-            doc_index=doc_index,
-            bounds=bounds,
-        )
-    )
+    if _should_scan_paragraph_heading_rows(heading_rows, doc_index.paragraphs):
+        heading_rows.extend(_paragraph_heading_rows(doc_index))
 
     if not heading_rows:
         return []
@@ -592,11 +587,15 @@ def _parse_heading_sections(
     if not heading_rows:
         return []
 
+    bare_numeral_run_indices = _deep_rank_bare_numeral_run_indices(heading_rows)
+
     start_idx = _fallback_start_index(heading_rows)
     if start_idx is None:
         return []
 
     sections: list[_Section] = []
+    dramatic_context_active = False
+    previous_kept_heading: str | None = None
     previous_kept_row: _HeadingRow | None = None
     i = start_idx
     while i < len(heading_rows):
@@ -605,7 +604,6 @@ def _parse_heading_sections(
         next_row = heading_rows[i + 1] if i + 1 < len(heading_rows) else None
         following_row = heading_rows[i + 2] if i + 2 < len(heading_rows) else None
         previous_row = heading_rows[i - 1] if i > start_idx else None
-        dramatic_context_active = _has_strong_dramatic_context(sections)
 
         if (
             previous_row is not None
@@ -617,7 +615,7 @@ def _parse_heading_sections(
 
         if _is_rank5_subheading_under_nonchapter_section(
             row,
-            previous_kept_heading=sections[-1].heading_text if sections else None,
+            previous_kept_heading=previous_kept_heading,
             dramatic_context_active=dramatic_context_active,
         ):
             i += 1
@@ -625,7 +623,7 @@ def _parse_heading_sections(
 
         if _is_single_letter_subheading(
             row,
-            previous_kept_heading=sections[-1].heading_text if sections else None,
+            previous_kept_heading=previous_kept_heading,
             previous_row=previous_row,
             next_row=next_row,
             doc_index=doc_index,
@@ -635,11 +633,11 @@ def _parse_heading_sections(
 
         if _is_deep_rank_bare_numeral_heading(
             row,
-            previous_kept_heading=sections[-1].heading_text if sections else None,
+            previous_kept_heading=previous_kept_heading,
             previous_row=previous_row,
             next_row=next_row,
-            preceding_rows=heading_rows[:i],
-            following_rows=heading_rows[i + 1 :],
+            row_index=i,
+            bare_numeral_run_indices=bare_numeral_run_indices,
             doc_index=doc_index,
         ):
             i += 1
@@ -647,7 +645,7 @@ def _parse_heading_sections(
 
         if _is_short_uppercase_stage_heading(
             row,
-            previous_kept_heading=sections[-1].heading_text if sections else None,
+            previous_kept_heading=previous_kept_heading,
             previous_row=previous_row,
             next_row=next_row,
             dramatic_context_active=dramatic_context_active,
@@ -689,7 +687,7 @@ def _parse_heading_sections(
                 row,
                 next_row,
                 following_row=following_row,
-                previous_kept_heading=sections[-1].heading_text if sections else None,
+                previous_kept_heading=previous_kept_heading,
                 dramatic_context_active=dramatic_context_active,
                 doc_index=doc_index,
             )
@@ -704,7 +702,12 @@ def _parse_heading_sections(
         level = _classify_level(heading_text, False)
         anchor_id = str(row.anchor.get("id", ""))
         sections.append(_Section(anchor_id, heading_text, level, row.anchor, row.rank))
+        previous_kept_heading = heading_text
         previous_kept_row = row
+        dramatic_context_active = _update_dramatic_context_state(
+            dramatic_context_active,
+            heading_text,
+        )
         i += 1
 
     return _drop_leading_repeated_title_sections(sections)
@@ -1149,6 +1152,7 @@ def _drop_leading_repeated_title_sections(sections: list[_Section]) -> list[_Sec
 class _IndexedParagraph:
     """A paragraph tag with its pre-computed position and extracted text."""
 
+    tag: Tag
     position: int
     text: str
     is_toc: bool
@@ -1185,7 +1189,7 @@ def _build_paragraph_index(
             continue
         text = _extract_paragraph_text(p)
         if text:
-            result.append(_IndexedParagraph(pos, text, _is_toc_paragraph(p)))
+            result.append(_IndexedParagraph(p, pos, text, _is_toc_paragraph(p)))
             positions.append(pos)
     return result, positions
 
@@ -1487,21 +1491,45 @@ def _filter_fallback_heading_rows(heading_rows: list[_HeadingRow]) -> list[_Head
 
 
 def _paragraph_heading_rows(
-    soup: BeautifulSoup,
-    *,
     doc_index: _DocumentIndex,
-    bounds: _ContentBounds,
 ) -> list[_HeadingRow]:
     """Return strict paragraph-based structural rows for heading-scan fallback."""
     rows: list[_HeadingRow] = []
-    for paragraph in soup.find_all("p"):
-        if not _tag_within_bounds(paragraph, doc_index.tag_positions, bounds):
+    for paragraph in doc_index.paragraphs:
+        if paragraph.is_toc:
             continue
-        if _is_toc_paragraph(paragraph):
-            continue
-        for heading_text in _split_play_heading_paragraph(_extract_paragraph_text(paragraph)):
-            rows.append(_HeadingRow(paragraph, paragraph, heading_text, 7))
+        for heading_text in _split_play_heading_paragraph(paragraph.text):
+            rows.append(_HeadingRow(paragraph.tag, paragraph.tag, heading_text, 7))
     return rows
+
+
+def _should_scan_paragraph_heading_rows(
+    heading_rows: list[_HeadingRow],
+    paragraphs: list[_IndexedParagraph],
+) -> bool:
+    """Return True when paragraph-based play headings are worth scanning."""
+    if not paragraphs:
+        return False
+    if any(_heading_text_suggests_play_structure(row.heading_text) for row in heading_rows):
+        return True
+
+    non_toc_scanned = 0
+    for paragraph in paragraphs:
+        if paragraph.is_toc:
+            continue
+        if _PLAY_HEADING_PARAGRAPH_RE.fullmatch(paragraph.text):
+            return True
+        non_toc_scanned += 1
+        if non_toc_scanned >= 400:
+            break
+    return False
+
+
+def _heading_text_suggests_play_structure(heading_text: str) -> bool:
+    lowered = heading_text.lower()
+    return _DRAMATIC_CONTEXT_HEADING_RE.search(heading_text) is not None or (
+        "dramatis personae" in lowered
+    )
 
 
 def _split_play_heading_paragraph(paragraph_text: str) -> list[str]:
@@ -1777,8 +1805,8 @@ def _is_deep_rank_bare_numeral_heading(
     previous_kept_heading: str | None,
     previous_row: _HeadingRow | None,
     next_row: _HeadingRow | None,
-    preceding_rows: list[_HeadingRow],
-    following_rows: list[_HeadingRow],
+    row_index: int,
+    bare_numeral_run_indices: set[int],
     doc_index: _DocumentIndex,
 ) -> bool:
     """Return True for deep-rank numeral-only subheads like ``II.`` or ``VI.``."""
@@ -1794,11 +1822,7 @@ def _is_deep_rank_bare_numeral_heading(
         predicate=_is_deep_rank_bare_numeral_candidate,
     ) or (
         not _heading_keyword(previous_kept_heading)
-        and _is_bare_numeral_run_between_higher_level_headings(
-            row,
-            preceding_rows=preceding_rows,
-            following_rows=following_rows,
-        )
+        and row_index in bare_numeral_run_indices
     )
 
 
@@ -1835,39 +1859,57 @@ def _has_adjacent_heading_candidate(
     )
 
 
-def _is_bare_numeral_run_between_higher_level_headings(
-    row: _HeadingRow,
-    *,
-    preceding_rows: list[_HeadingRow],
-    following_rows: list[_HeadingRow],
+def _deep_rank_bare_numeral_run_indices(heading_rows: list[_HeadingRow]) -> set[int]:
+    """Return indices of deep-rank numeral runs bounded by shallower headings."""
+    run_indices: set[int] = set()
+    idx = 0
+    while idx < len(heading_rows):
+        row = heading_rows[idx]
+        if not _is_deep_rank_bare_numeral_candidate(row):
+            idx += 1
+            continue
+
+        run_start = idx
+        run_rank = row.rank
+        idx += 1
+        while idx < len(heading_rows):
+            candidate = heading_rows[idx]
+            if not _is_deep_rank_bare_numeral_candidate(candidate) or candidate.rank != run_rank:
+                break
+            idx += 1
+
+        run_end = idx - 1
+        previous_row = heading_rows[run_start - 1] if run_start > 0 else None
+        next_row = heading_rows[idx] if idx < len(heading_rows) else None
+        if (
+            run_end - run_start >= 2
+            and previous_row is not None
+            and previous_row.rank < run_rank
+            and next_row is not None
+            and next_row.rank < run_rank
+        ):
+            run_indices.update(range(run_start, run_end + 1))
+    return run_indices
+
+
+def _update_dramatic_context_state(
+    dramatic_context_active: bool,
+    heading_text: str,
 ) -> bool:
-    run_length = 1
-    has_previous_boundary = False
-    for candidate in reversed(preceding_rows):
-        if candidate.rank < row.rank:
-            has_previous_boundary = True
-            break
-        if _is_deep_rank_bare_numeral_candidate(candidate):
-            run_length += 1
-            continue
+    """Track dramatic context only within the current local container."""
+    if _STRONG_DRAMATIC_CONTEXT_HEADING_RE.search(heading_text):
+        return True
+
+    keyword = _heading_keyword(heading_text)
+    if keyword in {"chapter", "section", "adventure", "stave"}:
         return False
-
-    has_next_boundary = False
-    for candidate in following_rows:
-        if candidate.rank < row.rank:
-            has_next_boundary = True
-            break
-        if _is_deep_rank_bare_numeral_candidate(candidate):
-            run_length += 1
-            continue
+    if keyword in _BROAD_KEYWORDS:
+        return dramatic_context_active
+    if _is_title_like_heading(heading_text):
         return False
-    return has_previous_boundary and has_next_boundary and run_length >= 3
-
-
-def _has_strong_dramatic_context(sections: list[_Section]) -> bool:
-    return any(
-        _STRONG_DRAMATIC_CONTEXT_HEADING_RE.search(section.heading_text) for section in sections
-    )
+    if _STANDALONE_STRUCTURAL_RE.search(heading_text):
+        return False
+    return dramatic_context_active
 
 
 def _is_title_page_subtitle(
@@ -1918,10 +1960,10 @@ def _is_rank5_subheading_under_nonchapter_section(
     if previous_kept_heading is None:
         return False
     if dramatic_context_active:
-        return True
-    if not _DRAMATIC_CONTEXT_HEADING_RE.search(previous_kept_heading):
+        return _DRAMATIC_CONTEXT_HEADING_RE.search(row.heading_text) is None
+    if not _is_short_uppercase_heading_candidate(row):
         return False
-    return _is_short_uppercase_heading_candidate(row)
+    return _DRAMATIC_CONTEXT_HEADING_RE.search(previous_kept_heading) is not None
 
 
 def _normalized_heading_continuation(

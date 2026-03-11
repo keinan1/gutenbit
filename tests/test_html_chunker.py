@@ -1368,6 +1368,24 @@ def test_heading_scan_starts_from_prologues_and_skips_short_dramatic_cues():
     assert paragraphs[-1].div2 == ""
 
 
+def test_heading_scan_resets_dramatic_context_after_non_dramatic_sections():
+    html = _make_html("""
+    <h2>ACT I</h2>
+    <h3>SCENE I</h3>
+    <p>Opening speech.</p>
+    <h2>CHAPTER I</h2>
+    <p>Chapter opening paragraph.</p>
+    <h5>MEMORY</h5>
+    <p>Memory paragraph.</p>
+    <h5>DREAMS</h5>
+    <p>Dreams paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert headings == ["ACT I", "SCENE I", "CHAPTER I", "MEMORY", "DREAMS"]
+
+
 def test_heading_scan_keeps_short_uppercase_prose_sections_outside_dramatic_context():
     html = _make_html("""
     <h2>CHAPTER I</h2>
@@ -1381,6 +1399,26 @@ def test_heading_scan_keeps_short_uppercase_prose_sections_outside_dramatic_cont
     headings = [c.content for c in chunks if c.kind == "heading"]
 
     assert headings == ["CHAPTER I", "MEMORY", "DREAMS"]
+
+
+def test_heading_scan_uses_paragraph_play_headings_after_generic_title():
+    html = _make_html("""
+    <h2>HAMLET</h2>
+    <p>ACT I</p>
+    <p>SCENE I</p>
+    <p>Opening speech.</p>
+    <p>SCENE II</p>
+    <p>Another speech.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    paragraphs = [c for c in chunks if c.kind == "text"]
+
+    assert [heading.content for heading in headings] == ["ACT I", "SCENE I", "SCENE II"]
+    assert paragraphs[0].div1 == "ACT I"
+    assert paragraphs[0].div2 == "SCENE I"
+    assert paragraphs[1].div1 == "ACT I"
+    assert paragraphs[1].div2 == "SCENE II"
 
 
 def test_heading_scan_starts_from_front_matter_before_shallower_chapters():
