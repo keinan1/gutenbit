@@ -319,3 +319,9 @@ def test_christmas_carol_keeps_preface_before_stave_one():
     heading_texts = [heading.content for heading in _headings(46)]
 
     assert heading_texts[:3] == ["PREFACE", "STAVE ONE", "STAVE TWO"]
+
+
+def test_tom_sawyer_keeps_preface_before_chapter_one():
+    heading_texts = [heading.content for heading in _headings(74)]
+
+    assert heading_texts[:3] == ["PREFACE", "CHAPTER I", "CHAPTER II"]
