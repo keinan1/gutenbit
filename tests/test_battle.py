@@ -335,3 +335,18 @@ def test_gulliver_keeps_both_prefatory_sections_before_part_one():
         "A LETTER FROM CAPTAIN GULLIVER TO HIS COUSIN SYMPSON",
         "PART I. A VOYAGE TO LILLIPUT",
     ]
+
+
+def test_don_quixote_keeps_preface_and_commendatory_verses():
+    heading_texts = [heading.content for heading in _headings(996)]
+
+    assert heading_texts[:8] == [
+        "INTRODUCTION",
+        "PREFARATORY",
+        "CERVANTES",
+        "‘DON QUIXOTE’",
+        "THE AUTHOR’S PREFACE",
+        "SOME COMMENDATORY VERSES",
+        "URGANDA THE UNKNOWN",
+        "AMADIS OF GAUL",
+    ]
