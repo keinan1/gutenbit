@@ -7,13 +7,13 @@ The `gutenbit` command-line tool provides seven subcommands that follow a natura
 Gutenbit is not published on PyPI yet, so start by running the CLI directly from GitHub:
 
 ```bash
-uvx --from git+https://github.com/keinan1/gutenbit gutenbit --help
+uvx --from git+https://github.com/textualist/gutenbit gutenbit --help
 ```
 
 Install it persistently with `uv` once you want the `gutenbit` command available without `uvx`:
 
 ```bash
-uv tool install git+https://github.com/keinan1/gutenbit
+uv tool install git+https://github.com/textualist/gutenbit
 ```
 
 Then run `gutenbit --help`. Remove it later with `uv tool uninstall gutenbit`.

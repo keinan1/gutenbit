@@ -30,10 +30,10 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://keinan1.github.io/gutenbit/"
-Homepage = "https://keinan1.github.io/gutenbit/"
-Issues = "https://github.com/keinan1/gutenbit/issues"
-Repository = "https://github.com/keinan1/gutenbit"
+Documentation = "https://textualist.github.io/gutenbit/"
+Homepage = "https://textualist.github.io/gutenbit/"
+Issues = "https://github.com/textualist/gutenbit/issues"
+Repository = "https://github.com/textualist/gutenbit"
 
 [project.scripts]
 gutenbit = "gutenbit.cli:_entry_point"
