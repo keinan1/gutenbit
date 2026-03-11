@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gutenbit Battle Test"
+  short_description: "Run live parsing and CLI battle tests"
+  default_prompt: "Use $gutenbit-live-battle-test to run or document a live parsing and CLI battle test for a Project Gutenberg work."
