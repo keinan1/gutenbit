@@ -647,6 +647,30 @@ def _refine_toc_sections(
     added = 0
     heading_idx = 0
 
+    first_toc = toc_sections[0]
+    first_pos = _tag_position(first_toc.body_anchor, tag_positions)
+    if first_pos is not None:
+        while heading_idx < len(heading_sections):
+            candidate = heading_sections[heading_idx]
+            candidate_pos = _tag_position(candidate.body_anchor, tag_positions)
+            if candidate_pos is None:
+                heading_idx += 1
+                continue
+            if candidate_pos >= first_pos:
+                break
+            if _FALLBACK_START_HEADING_RE.match(candidate.heading_text):
+                refined.append(
+                    _Section(
+                        candidate.anchor_id,
+                        candidate.heading_text,
+                        min(candidate.level, first_toc.level),
+                        candidate.body_anchor,
+                        candidate.heading_rank,
+                    )
+                )
+                added += 1
+            heading_idx += 1
+
     for toc_idx, toc_section in enumerate(toc_sections):
         refined.append(toc_section)
         start_pos = _tag_position(toc_section.body_anchor, tag_positions)

@@ -1298,6 +1298,29 @@ def test_toc_refinement_keeps_terminal_note_after_last_chapter():
     assert note_paragraph.div1 == "NOTE"
 
 
+def test_toc_refinement_keeps_leading_preface_before_first_toc_section():
+    html = _make_html("""
+    <h3>PREFACE</h3>
+    <p>Preface paragraph.</p>
+    <table><tbody>
+      <tr><td><a href="#ch1" class="pginternal">CHAPTER I</a></td></tr>
+      <tr><td><a href="#ch2" class="pginternal">CHAPTER II</a></td></tr>
+    </tbody></table>
+    <h2><a id="ch1"></a>CHAPTER I</h2>
+    <p>Chapter one paragraph.</p>
+    <h2><a id="ch2"></a>CHAPTER II</h2>
+    <p>Chapter two paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+    preface_paragraph = next(
+        c for c in chunks if c.kind == "text" and c.content == "Preface paragraph."
+    )
+
+    assert headings == ["PREFACE", "CHAPTER I", "CHAPTER II"]
+    assert preface_paragraph.div1 == "PREFACE"
+
+
 # ------------------------------------------------------------------
 # Chunk kind coverage
 # ------------------------------------------------------------------

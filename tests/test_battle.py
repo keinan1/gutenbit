@@ -313,3 +313,9 @@ def test_les_miserables_keeps_preface_and_final_letter():
 
     assert heading_texts[:3] == ["LES MISÉRABLES", "PREFACE", "VOLUME I FANTINE"]
     assert heading_texts[-1] == "LETTER TO M. DAELLI"
+
+
+def test_christmas_carol_keeps_preface_before_stave_one():
+    heading_texts = [heading.content for heading in _headings(46)]
+
+    assert heading_texts[:3] == ["PREFACE", "STAVE ONE", "STAVE TWO"]
