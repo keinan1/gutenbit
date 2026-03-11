@@ -350,3 +350,9 @@ def test_don_quixote_keeps_preface_and_commendatory_verses():
         "URGANDA THE UNKNOWN",
         "AMADIS OF GAUL",
     ]
+
+
+def test_bleak_house_keeps_preface_before_chapter_one():
+    heading_texts = [heading.content for heading in _headings(1023)]
+
+    assert heading_texts[:3] == ["PREFACE", "CHAPTER I In Chancery", "CHAPTER II In Fashion"]
