@@ -1281,6 +1281,34 @@ def test_heading_scan_skips_deep_rank_bare_numeral_subheads():
     ]
 
 
+def test_heading_scan_keeps_deep_rank_bare_numerals_when_they_are_real_sections():
+    html = _make_html("""
+    <h4>I</h4>
+    <p>First section paragraph.</p>
+    <h4>II</h4>
+    <p>Second section paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert headings == ["I", "II"]
+
+
+def test_heading_scan_keeps_deep_rank_single_letter_sections_when_they_are_real():
+    html = _make_html("""
+    <h2>APPENDIX</h2>
+    <p>Appendix opening paragraph.</p>
+    <h4>A</h4>
+    <p>Appendix A paragraph.</p>
+    <h4>B</h4>
+    <p>Appendix B paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert headings == ["APPENDIX", "A", "B"]
+
+
 def test_dialogue_speaker_headings_do_not_replace_book_structure():
     html = _make_html("""
     <h1>BOOK I</h1>
@@ -1338,6 +1366,21 @@ def test_heading_scan_starts_from_prologues_and_skips_short_dramatic_cues():
     assert all(h.content not in excluded for h in headings)
     assert paragraphs[-1].div1 == "PART I"
     assert paragraphs[-1].div2 == ""
+
+
+def test_heading_scan_keeps_short_uppercase_prose_sections_outside_dramatic_context():
+    html = _make_html("""
+    <h2>CHAPTER I</h2>
+    <p>Chapter opening paragraph.</p>
+    <h5>MEMORY</h5>
+    <p>Memory paragraph.</p>
+    <h5>DREAMS</h5>
+    <p>Dreams paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert headings == ["CHAPTER I", "MEMORY", "DREAMS"]
 
 
 def test_heading_scan_starts_from_front_matter_before_shallower_chapters():
