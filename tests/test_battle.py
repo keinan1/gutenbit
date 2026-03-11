@@ -366,3 +366,16 @@ def test_vanity_fair_keeps_before_the_curtain_before_chapter_one():
         "CHAPTER I Chiswick Mall",
         "CHAPTER II In Which Miss Sharp and Miss Sedley Prepare to Open the Campaign",
     ]
+
+
+def test_black_beauty_keeps_part_headings_as_independent_sections():
+    heading_texts = [heading.content for heading in _headings(271)]
+
+    assert heading_texts[:4] == ["Black Beauty", "Part I", "01 My Early Home", "02 The Hunt"]
+    assert [heading for heading in heading_texts if heading.startswith("Part ")] == [
+        "Part I",
+        "Part II",
+        "Part III",
+        "Part IV",
+    ]
+    assert heading_texts[heading_texts.index("Part II") + 1] == "22 Earlshall"
