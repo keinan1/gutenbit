@@ -152,3 +152,21 @@ def test_ulysses_preserves_bracketed_episode_labels():
     assert len(episode_labels) == 18
     assert episode_labels[:3] == ["[ 1 ]", "[ 2 ]", "[ 3 ]"]
     assert episode_labels[-1] == "[ 18 ]"
+
+
+def test_hamlet_uses_paragraph_fallback_for_act_and_scene_structure():
+    headings = _headings(1122)
+    heading_texts = [heading.content for heading in headings]
+
+    assert heading_texts[:4] == [
+        "Actus Primus",
+        "Scoena Prima",
+        "Scena Secunda",
+        "Scena Tertia",
+    ]
+    assert "Actus Secundus" in heading_texts
+    assert "FINIS" not in heading_texts
+
+    first_scene = next(heading for heading in headings if heading.content == "Scoena Prima")
+    assert first_scene.div1 == "Actus Primus"
+    assert first_scene.div2 == "Scoena Prima"

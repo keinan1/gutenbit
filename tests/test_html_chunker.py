@@ -1022,6 +1022,37 @@ def test_toc_ignores_title_like_h3_subheads_inside_chapters():
 
 
 # ------------------------------------------------------------------
+# Paragraph heading fallback
+# ------------------------------------------------------------------
+
+
+def test_paragraph_play_headings_split_act_and_scene_and_ignore_finis():
+    html = _make_html("""
+    <h1>The Tragedie of Hamlet</h1>
+    <p>Actus Primus. Scoena Prima.</p>
+    <p>Enter Barnardo and Francisco two Centinels.</p>
+    <p>Scena Secunda.</p>
+    <p>Enter Claudius, King of Denmarke.</p>
+    <h4>FINIS.</h4>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    paragraphs = [c for c in chunks if c.kind == "text"]
+
+    assert [h.content for h in headings] == ["Actus Primus", "Scoena Prima", "Scena Secunda"]
+    assert headings[0].div1 == "Actus Primus"
+    assert headings[1].div1 == "Actus Primus"
+    assert headings[1].div2 == "Scoena Prima"
+    assert headings[2].div1 == "Actus Primus"
+    assert headings[2].div2 == "Scena Secunda"
+    assert all(h.content != "FINIS" for h in headings)
+    assert paragraphs[0].div1 == "Actus Primus"
+    assert paragraphs[0].div2 == "Scoena Prima"
+    assert paragraphs[1].div1 == "Actus Primus"
+    assert paragraphs[1].div2 == "Scena Secunda"
+
+
+# ------------------------------------------------------------------
 # Chunk kind coverage
 # ------------------------------------------------------------------
 
