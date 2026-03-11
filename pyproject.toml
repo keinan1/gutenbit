@@ -30,8 +30,8 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://textualist.github.io/gutenbit/"
-Homepage = "https://textualist.github.io/gutenbit/"
+Documentation = "https://gutenbit.textualist.org"
+Homepage = "https://gutenbit.textualist.org"
 Issues = "https://github.com/textualist/gutenbit/issues"
 Repository = "https://github.com/textualist/gutenbit"
 
