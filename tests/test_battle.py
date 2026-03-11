@@ -356,3 +356,13 @@ def test_bleak_house_keeps_preface_before_chapter_one():
     heading_texts = [heading.content for heading in _headings(1023)]
 
     assert heading_texts[:3] == ["PREFACE", "CHAPTER I In Chancery", "CHAPTER II In Fashion"]
+
+
+def test_vanity_fair_keeps_before_the_curtain_before_chapter_one():
+    heading_texts = [heading.content for heading in _headings(599)]
+
+    assert heading_texts[:3] == [
+        "BEFORE THE CURTAIN",
+        "CHAPTER I Chiswick Mall",
+        "CHAPTER II In Which Miss Sharp and Miss Sedley Prepare to Open the Campaign",
+    ]
