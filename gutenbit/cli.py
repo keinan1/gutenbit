@@ -160,6 +160,8 @@ class _OverviewSummary(TypedDict):
     chunk_counts: _ChunkCounts
     sections_total: int
     sections_shown: int
+    levels_total: int
+    levels_shown: int
     paragraphs_total: int
     chars_total: int
     est_words: int
@@ -2110,6 +2112,15 @@ def _build_section_summary(
     else:
         visible_section_rows = [cast(_SectionRow, dict(section)) for section in raw_section_rows]
 
+    total_levels = max(
+        (_section_depth(str(row["section"])) for row in raw_section_rows),
+        default=0,
+    )
+    shown_levels = max(
+        (_section_depth(str(row["section"])) for row in visible_section_rows),
+        default=0,
+    )
+
     opening_section_num: int | None = None
     opening_position: int | None = None
     opening_rows = _opening_rows(db, book_id, 1)
@@ -2161,6 +2172,8 @@ def _build_section_summary(
             "chunk_counts": kind_counts,
             "sections_total": total_sections,
             "sections_shown": len(visible_section_rows),
+            "levels_total": total_levels,
+            "levels_shown": shown_levels,
             "paragraphs_total": total_paragraphs,
             "chars_total": total_chars,
             "est_words": est_words,

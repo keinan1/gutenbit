@@ -900,7 +900,10 @@ def test_toc_default_shows_structure(tmp_path):
     assert "Words" in out
     assert "Read" in out
     assert "Opening" in out
-    assert "2 sections · 3 paragraphs · 151 words · 756 chars · 1m read" in out
+    assert (
+        "Moby Dick · id 1 · 2/2 sections shown · 1/1 level "
+        "· 3 paragraphs · 151 words · 1m read" in out
+    )
     assert "gutenbit toc 1 --expand all" in out
     assert "gutenbit view 1 --section 1 --forward 20" in out
     assert "gutenbit view 1 --all" in out
@@ -1353,7 +1356,7 @@ def test_view_position_heading_only_shows_dash_footer_stats(tmp_path):
     code, out, _err = _run_cli(db_path, "view", "1", "--position", "0", "--forward", "1")
     assert code == 0
     assert "CHAPTER 1" in out
-    assert "0 paragraphs · - words · - read" in out
+    assert "Moby Dick · id 1 · section CHAPTER 1 · 0 paragraphs · - words · - read" in out
 
 
 def test_view_position_with_radius_header(tmp_path):
