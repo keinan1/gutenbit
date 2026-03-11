@@ -306,3 +306,10 @@ def test_jane_eyre_keeps_preface_and_note_before_chapter_one():
     heading_texts = [heading.content for heading in _headings(1260)]
 
     assert heading_texts[:4] == ["PREFACE", "NOTE TO THE THIRD EDITION", "CHAPTER I", "CHAPTER II"]
+
+
+def test_les_miserables_keeps_preface_and_final_letter():
+    heading_texts = [heading.content for heading in _headings(135)]
+
+    assert heading_texts[:3] == ["LES MISÉRABLES", "PREFACE", "VOLUME I FANTINE"]
+    assert heading_texts[-1] == "LETTER TO M. DAELLI"
