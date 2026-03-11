@@ -17,6 +17,7 @@ from gutenbit.catalog import BookRecord, Catalog, CatalogFetchInfo
 from gutenbit.db import (
     ChunkRecord,
     Database,
+    IngestProgressCallback,
     TextState,
     _div_parts_match,
     _normalize_div_segment,
@@ -809,7 +810,7 @@ def _package_version() -> str:
             from gutenbit import __version__
         except ImportError:
             return "0+unknown"
-            return __version__
+        return __version__
 
 
 def _toc_expand_depth(expand: str) -> int:
@@ -1212,25 +1213,33 @@ def _ingest_one_book(
     delay: float,
     as_json: bool,
     force: bool = False,
-    progress_callback: Any | None = None,
+    progress_callback: IngestProgressCallback | None = None,
 ) -> bool:
-    ingest_kwargs = {
-        "delay": delay,
-        "force": force,
-        "state": state,
-    }
-    if progress_callback is not None:
-        ingest_kwargs["progress_callback"] = progress_callback
+    def _run_ingest() -> bool:
+        if progress_callback is None:
+            return db._ingest_book(
+                book,
+                delay=delay,
+                force=force,
+                state=state,
+            )
+        return db._ingest_book(
+            book,
+            delay=delay,
+            force=force,
+            state=state,
+            progress_callback=progress_callback,
+        )
 
     if as_json:
         previous_disable = logging.root.manager.disable
         logging.disable(logging.CRITICAL)
         try:
-            return db._ingest_book(book, **ingest_kwargs)
+            return _run_ingest()
         finally:
             logging.disable(previous_disable)
 
-    return db._ingest_book(book, **ingest_kwargs)
+    return _run_ingest()
 
 
 def _process_books_for_ingest(

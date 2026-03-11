@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, NavigableString, Tag
@@ -1085,7 +1085,7 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
 
 
 def _leading_title_cluster_start_index(
-    items: list[_Section | _HeadingRow],
+    items: Sequence[_Section | _HeadingRow],
     *,
     first_front_matter_idx: int,
 ) -> int:
@@ -1096,7 +1096,7 @@ def _leading_title_cluster_start_index(
 
 
 def _post_front_matter_repeat_title_keys(
-    items: list[_Section | _HeadingRow],
+    items: Sequence[_Section | _HeadingRow],
     *,
     first_front_matter_idx: int,
 ) -> set[str]:
