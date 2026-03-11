@@ -23,7 +23,7 @@ All CLI-managed state lives under `.gutenbit/` by default: the database is `.gut
 
 ## Project Gutenberg Access
 
-Use gutenbit for individual downloads, not bulk harvesting. It prefers official mirrors and uses the main site only as a zip fallback, with a default `2.0` second delay between downloads. Review the [Robot Access Policy](https://www.gutenberg.org/policy/robot_access.html) and [Terms of Use](https://www.gutenberg.org/policy/terms_of_use.html).
+Use gutenbit for individual downloads, not bulk downloading. It prefers official mirrors and uses the main site only as a zip fallback, with a default `2.0` second delay between downloads. Review the [Robot Access Policy](https://www.gutenberg.org/policy/robot_access.html) and [Terms of Use](https://www.gutenberg.org/policy/terms_of_use.html).
 
 ## catalog
 
@@ -116,7 +116,7 @@ targets text chunks by default.
 
 ```bash
 gutenbit search "bennet"
-gutenbit search "don't stop"                              # punctuation just works
+gutenbit search "don't stop"                              # punctuation is ok
 gutenbit search "truth universally acknowledged" --phrase
 gutenbit search "ghost OR spirit" --raw                   # FTS5 boolean query
 gutenbit search "bennet" --book 1342 --order first

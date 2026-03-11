@@ -55,10 +55,14 @@ if book is not None:
             print(hit.title, hit.div1, hit.content[:80])
 ```
 
-## Documentation
+## Next steps
 
-Full documentation: [Getting Started](getting-started.md) | [Python API](python-api.md) | [CLI](cli.md) | [Concepts](concepts.md) | [API Reference](reference/index.md)
+- [Getting Started](getting-started.md) walks through a complete workflow.
+- [Python API](python-api.md) covers the library in full.
+- [CLI](cli.md) documents every subcommand and flag.
+- [Concepts](concepts.md) explains how chunking, divisions, and search work.
+- [API Reference](reference/index.md) has auto-generated module documentation.
 
 ## Project Gutenberg Access
 
-Gutenbit is for individual downloads, not bulk harvesting. It prefers official mirrors and uses the main site only as a zip fallback, with a default `2.0` second delay between downloads. Review Project Gutenberg's [Robot Access Policy](https://www.gutenberg.org/policy/robot_access.html) and [Terms of Use](https://www.gutenberg.org/policy/terms_of_use.html).
+Gutenbit is for individual downloads, not bulk downloading. It prefers official mirrors and uses the main site only as a zip fallback, with a default `2.0` second delay between downloads. Review Project Gutenberg's [Robot Access Policy](https://www.gutenberg.org/policy/robot_access.html) and [Terms of Use](https://www.gutenberg.org/policy/terms_of_use.html).

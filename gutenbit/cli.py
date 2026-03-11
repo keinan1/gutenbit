@@ -952,13 +952,13 @@ output columns:  ID  AUTHORS  TITLE""",
         description=(
             "Full-text search using SQLite FTS5 with BM25 ranking. "
             "Plain-text queries are auto-escaped so apostrophes, hyphens, "
-            "and other punctuation just work. Use --raw for advanced FTS5 "
+            "and other punctuation are ok. Use --raw for advanced FTS5 "
             "syntax (AND/OR/NOT, prefix*, NEAR, parentheses)."
         ),
         epilog="""\
 examples:
   gutenbit search "bennet"                                  # simple search
-  gutenbit search "don't stop"                              # punctuation just works
+  gutenbit search "don't stop"                              # punctuation is ok
   gutenbit search "half-hour"                               # hyphens just work
   gutenbit search "truth universally acknowledged" --phrase # exact phrase match
   gutenbit search "ghost OR spirit" --raw                   # FTS5 boolean query
@@ -1676,7 +1676,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
         return _command_error("search", "Search query must not be empty.", as_json=as_json)
 
     # Query mode: --phrase wraps as exact phrase, --raw passes through to FTS5,
-    # default auto-escapes plain text so punctuation just works.
+    # default auto-escapes plain text so punctuation is ok.
     if args.phrase:
         search_query = _fts_phrase_query(query_text)
         query_mode = "phrase"
