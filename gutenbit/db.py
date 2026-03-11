@@ -6,6 +6,7 @@ import logging
 import re
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import astuple, dataclass
 from pathlib import Path
 from typing import Literal
@@ -109,6 +110,8 @@ WHERE chunks_fts MATCH ?
 _DIV_TRAILING_PUNCT_RE = re.compile(r"[.,;:!?]+$")
 _DIV_PUNCT_SPACING_RE = re.compile(r"\s*([.,;:!?])\s*")
 SearchOrder = Literal["rank", "first", "last"]
+IngestStage = Literal["download", "chunk", "store", "delay", "done", "failed"]
+IngestProgressCallback = Callable[[IngestStage], None]
 
 
 def _normalize_div_segment(value: str) -> str:
@@ -776,6 +779,7 @@ class Database:
         delay: float,
         force: bool,
         state: TextState | None = None,
+        progress_callback: IngestProgressCallback | None = None,
     ) -> bool:
         if state is None:
             state = self.text_states([book.id]).get(
@@ -793,13 +797,24 @@ class Database:
         logger.info("Downloading %s (id=%d)", book.title, book.id)
         success = False
         try:
+            if progress_callback is not None:
+                progress_callback("download")
             html = download_html(book.id)
+            if progress_callback is not None:
+                progress_callback("chunk")
             chunks = chunk_html(html)
+            if progress_callback is not None:
+                progress_callback("store")
             self._store(book, chunks)
             success = True
         except Exception:
             logger.exception("Failed to download %s (id=%d)", book.title, book.id)
-        time.sleep(delay)
+        if delay > 0:
+            if progress_callback is not None:
+                progress_callback("delay")
+            time.sleep(delay)
+        if progress_callback is not None:
+            progress_callback("done" if success else "failed")
         return success
 
     def _store(self, book: BookRecord, chunks: list[Chunk]) -> None:
