@@ -34,6 +34,12 @@ HTML-first Project Gutenberg ETL and search. The core loop is: resolve a catalog
 - Add focused regressions that capture the structural invariant. Avoid broad snapshots unless the full shape is the invariant.
 - If behavior changes, update tests and docs in the same pass.
 
+## Battle tests
+
+- Use `$gutenbit-live-battle-test` from `.codex/skills/gutenbit-live-battle-test/SKILL.md` for live parsing and CLI battle tests.
+- Use `.codex/skills/gutenbit-live-battle-test/references/kei-17-corpus.md` to classify known parser failure families and mirror the existing network-test style.
+- For parser fixes, finish by running `uv run pytest` and `uv run pytest -m network`.
+
 ## Style
 
 - Modern Python, explicit types, minimal dependencies.
