@@ -368,6 +368,30 @@ def test_decameron_does_not_nest_days_under_proem():
     assert conclusion.div2 == ""
 
 
+def test_leaves_of_grass_keeps_poems_nested_within_books():
+    headings = _headings(1322)
+    paragraphs = _paragraphs(1322)
+
+    book_one = next(heading for heading in headings if heading.content == "BOOK I. INSCRIPTIONS")
+    one_self = next(heading for heading in headings if heading.content == "One’s-Self I Sing")
+    book_two = next(heading for heading in headings if heading.content == "BOOK II")
+    book_two_text = next(
+        paragraph
+        for paragraph in paragraphs
+        if paragraph.div1 == "BOOK II"
+        and "Starting from fish-shape Paumanok where I was born" in paragraph.content
+    )
+
+    assert book_one.div1 == "BOOK I. INSCRIPTIONS"
+    assert book_one.div2 == ""
+    assert one_self.div1 == "BOOK I. INSCRIPTIONS"
+    assert one_self.div2 == "One’s-Self I Sing"
+    assert book_two.div1 == "BOOK II"
+    assert book_two.div2 == ""
+    assert book_two_text.div1 == "BOOK II"
+    assert book_two_text.div2 == ""
+
+
 def test_moby_dick_keeps_etymology_and_extracts_before_chapter_one():
     heading_texts = [heading.content for heading in _headings(15)]
 

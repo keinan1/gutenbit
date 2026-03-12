@@ -64,7 +64,7 @@ _STRUCTURAL_KEYWORD_ALIASES = {
     "scena": "scene",
     "scoena": "scene",
 }
-CHUNKER_VERSION = 25
+CHUNKER_VERSION = 26
 
 # Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
 # with no subtitle text — used to merge consecutive number + title headings.
@@ -1094,6 +1094,15 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
     title_indices_by_level: dict[int, list[int]] = defaultdict(list)
     container_title_indices_by_level: dict[int, list[int]] = defaultdict(list)
 
+    def _has_same_level_collection_title_since_lower_level(title_idx: int, *, level: int) -> bool:
+        for previous_idx in range(title_idx - 1, -1, -1):
+            previous_section = sections[previous_idx]
+            if previous_section.level < level:
+                return False
+            if previous_section.level == level and _is_collection_title(previous_section):
+                return True
+        return False
+
     for idx, section in enumerate(sections):
         if not _is_collection_title(section):
             continue
@@ -1102,6 +1111,11 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
         for next_idx in range(idx + 1, len(sections)):
             next_section = sections[next_idx]
             if _is_collection_title(next_section) and next_section.level == section.level:
+                break
+            next_depth = _broad_nesting_depth(next_section.heading_text)
+            if next_depth is None:
+                continue
+            if _has_same_level_collection_title_since_lower_level(idx, level=section.level):
                 break
             if _heading_keyword(next_section.heading_text) in _BROAD_KEYWORDS:
                 container_title_indices_by_level[section.level].append(idx)
@@ -1349,23 +1363,28 @@ def _build_paragraph_index(
     tag_positions: dict[int, int],
     bounds: _ContentBounds,
 ) -> tuple[list[_IndexedParagraph], list[int]]:
-    """Pre-collect all usable paragraphs with positions and text.
+    """Pre-collect all usable paragraph-like text blocks with positions and text.
 
     Builds a sorted list once so section-range queries use bisect instead of
-    repeated ``find_all_next("p")`` traversals.
+    repeated traversals.
     """
     body = soup.find("body")
     if not body:
         return [], []
     result: list[_IndexedParagraph] = []
     positions: list[int] = []
-    for p in body.find_all("p"):
-        pos = tag_positions.get(id(p))
+    for block in body.find_all(["p", "pre"]):
+        pos = tag_positions.get(id(block))
         if pos is None or not bounds.contains(pos):
             continue
-        text = _extract_paragraph_text(p)
+        if block.name == "pre":
+            text = _extract_preformatted_text(block)
+            is_toc = False
+        else:
+            text = _extract_paragraph_text(block)
+            is_toc = _is_toc_paragraph(block)
         if text:
-            result.append(_IndexedParagraph(p, pos, text, _is_toc_paragraph(p)))
+            result.append(_IndexedParagraph(block, pos, text, is_toc))
             positions.append(pos)
     return result, positions
 
@@ -1438,6 +1457,16 @@ def _extract_paragraph_text(paragraph: Tag) -> str:
 
     _append_text(paragraph)
     return " ".join("".join(parts).split()).strip()
+
+
+def _extract_preformatted_text(pre: Tag) -> str:
+    """Return trimmed preformatted text while preserving line breaks."""
+    lines = [line.rstrip() for line in pre.get_text("\n").splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines).strip()
 
 
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
