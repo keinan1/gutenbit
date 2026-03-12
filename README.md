@@ -76,7 +76,7 @@ uv run ty check                  # type check
 
 ## Releases
 
-Versioning is tag-driven via `hatch-vcs`. Merging to `main` does not create a release or require a manual version bump, and installs from `main` are development builds. Cut a release by creating a GitHub tag or release such as `v0.1.6` on the target `main` commit; the release workflow will build and attach the wheel and sdist to GitHub Releases. Do not edit version strings in source files. See [RELEASING.md](RELEASING.md).
+Versioning is tag-driven via `hatch-vcs`. Merging to `main` does not create a release or require a manual version bump, and installs from `main` are development builds. Cut a release by creating a GitHub tag or release such as `v0.1.6` on the target `main` commit; the release workflow will build and attach the wheel and sdist to GitHub Releases, and the docs workflow will publish the tagged docs build to the public site. Pushes to `main` still validate docs, but they do not publish them. Do not edit version strings in source files. See [RELEASING.md](RELEASING.md).
 
 ## License
 
