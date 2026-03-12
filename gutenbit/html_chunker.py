@@ -752,7 +752,7 @@ def _parse_heading_sections(
                 heading_text = f"{heading_text} {subtitle}"
                 i += 1
 
-        elif _is_ignorable_fallback_heading(heading_text):
+        elif _is_ignorable_fallback_heading(heading_text, heading_rank=row.rank):
             i += 1
             continue
 
@@ -1839,13 +1839,19 @@ def _broad_heading_with_enumerated_child(
     ) in _BROAD_KEYWORDS and _starts_with_enumerated_heading_prefix(next_heading_text)
 
 
-def _is_ignorable_fallback_heading(heading_text: str) -> bool:
+def _is_ignorable_fallback_heading(
+    heading_text: str,
+    *,
+    heading_rank: int | None,
+) -> bool:
     """Return True for heading-scan rows that are likely contents or inline subheads."""
     if _NON_SUBTITLE_HEADING_RE.fullmatch(heading_text):
         return True
     if _STANDALONE_APPARATUS_HEADING_RE.match(heading_text):
         return True
-    if _ENUMERATED_SUBHEADING_RE.match(heading_text):
+    if _ENUMERATED_SUBHEADING_RE.match(heading_text) and (
+        heading_rank is None or heading_rank >= 4
+    ):
         return True
     return len(_LIST_ITEM_MARKER_RE.findall(heading_text)) >= 2
 

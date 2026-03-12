@@ -508,6 +508,27 @@ def test_pre_blocks_are_collected_as_text_chunks():
     )
 
 
+def test_enumerated_h3_headings_are_kept_as_sections():
+    html = _make_html("""
+    <h3><a id="chap1"></a>I.<br>Of Our Spiritual Strivings</h3>
+    <p>First chapter text.</p>
+    <h3><a id="chap2"></a>II.<br>Of the Dawn of Freedom</h3>
+    <p>Second chapter text.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    paragraphs = [c for c in chunks if c.kind == "text"]
+
+    assert [heading.content for heading in headings] == [
+        "I. Of Our Spiritual Strivings",
+        "II. Of the Dawn of Freedom",
+    ]
+    assert headings[0].div1 == "I. Of Our Spiritual Strivings"
+    assert headings[1].div1 == "II. Of the Dawn of Freedom"
+    assert paragraphs[0].div1 == "I. Of Our Spiritual Strivings"
+    assert paragraphs[1].div1 == "II. Of the Dawn of Freedom"
+
+
 def test_single_work_title_is_not_promoted_above_parts():
     html = _make_html("""
     <p><a href="#title" class="pginternal">THE BOOK</a></p>

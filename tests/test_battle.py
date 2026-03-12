@@ -392,6 +392,25 @@ def test_leaves_of_grass_keeps_poems_nested_within_books():
     assert book_two_text.div2 == ""
 
 
+def test_souls_of_black_folk_keeps_numbered_chapters():
+    headings = _headings(408)
+
+    chapter_one = next(
+        heading for heading in headings if heading.content == "I. Of Our Spiritual Strivings"
+    )
+    chapter_fourteen = next(
+        heading for heading in headings if heading.content == "XIV. Of the Sorrow Songs"
+    )
+    afterthought = next(heading for heading in headings if heading.content == "The Afterthought")
+
+    assert chapter_one.div1 == "I. Of Our Spiritual Strivings"
+    assert chapter_one.div2 == ""
+    assert chapter_fourteen.div1 == "XIV. Of the Sorrow Songs"
+    assert chapter_fourteen.div2 == ""
+    assert afterthought.div1 == "The Afterthought"
+    assert afterthought.div2 == ""
+
+
 def test_moby_dick_keeps_etymology_and_extracts_before_chapter_one():
     heading_texts = [heading.content for heading in _headings(15)]
 
