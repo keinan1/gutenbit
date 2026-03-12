@@ -1,63 +1,71 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://keinan1.github.io/gutenbit/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/cli/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/cli/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/concepts/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/concepts/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/getting-started/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/getting-started/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/python-api/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/python-api/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/SUMMARY/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/SUMMARY/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/gutenbit/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/gutenbit/_cache/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/_cache/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/gutenbit/catalog/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/_http/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/gutenbit/cli/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/_version/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/gutenbit/db/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/catalog/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/gutenbit/display/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/cli/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/gutenbit/download/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/db/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
     <url>
-         <loc>https://keinan1.github.io/gutenbit/reference/gutenbit/html_chunker/</loc>
-         <lastmod>2026-03-11</lastmod>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/display/</loc>
+         <lastmod>2026-03-12</lastmod>
+    </url>
+    <url>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/download/</loc>
+         <lastmod>2026-03-12</lastmod>
+    </url>
+    <url>
+         <loc>https://gutenbit.textualist.org/reference/gutenbit/html_chunker/</loc>
+         <lastmod>2026-03-12</lastmod>
     </url>
 </urlset>
