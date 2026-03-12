@@ -6,21 +6,19 @@ Start with `gutenbit --help` for the workflow overview, then use `gutenbit COMMA
 
 ## Installation
 
-gutenbit is not published on PyPI yet, so start by running the CLI directly from GitHub:
+Try the latest stable release from PyPI without a persistent install:
 
 ```bash
-uvx --from git+https://github.com/textualist/gutenbit gutenbit --help
+uvx gutenbit --help
 ```
 
-Install it persistently with `uv` once you want the `gutenbit` command available without `uvx`:
+Or install it like this and then run `gutenbit --help`:
 
 ```bash
-uv tool install git+https://github.com/textualist/gutenbit
+uv tool install gutenbit
 ```
 
-Then run `gutenbit --help`. Remove it later with `uv tool uninstall gutenbit`.
 gutenbit stores its database and catalog cache in a `.gutenbit/` folder.
-Installs from the default branch are development builds. Stable releases are the tagged GitHub releases in the `vX.Y.Z` format.
 
 All CLI-managed state lives under `.gutenbit/` by default: the database is `.gutenbit/gutenbit.db`, and the catalog cache is stored under `.gutenbit/cache/`. Use `--db PATH` to store the database elsewhere. All commands support `--json` for machine-readable output.
 
