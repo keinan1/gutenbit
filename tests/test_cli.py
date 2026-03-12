@@ -119,6 +119,10 @@ def test_help_uses_command_placeholder_instead_of_choice_braces():
     assert "{catalog,add,remove,books,search,toc,view}" not in rendered
     assert "commands:" in rendered
     assert "gutenbit COMMAND --help" in rendered
+    assert "project gutenberg:" not in rendered
+    assert "local state:" not in rendered
+    assert "not affiliated with Project Gutenberg" in rendered
+    assert "stores its SQLite database and catalog cache in" in rendered
 
 
 @pytest.mark.parametrize(

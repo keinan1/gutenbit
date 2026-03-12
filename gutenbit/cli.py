@@ -851,12 +851,11 @@ quick start:
 learn more:
   gutenbit COMMAND --help    detailed help for one command
 
-project gutenberg:
-  gutenbit is an open-source project not affiliated with Project Gutenberg.
-  It is for individual downloads, not bulk downloading.
+gutenbit is an open-source project not affiliated with Project Gutenberg.
+It is for individual downloads, not bulk downloading.
 
-local state:
-  .gutenbit/ (default database: .gutenbit/gutenbit.db)""",
+By default, gutenbit stores its SQLite database and catalog cache in
+.gutenbit/ in the current directory (default database: .gutenbit/gutenbit.db).""",
     )
     p._optionals.title = "global options"
     p.add_argument("--db", default=DEFAULT_DB, help="SQLite database path (default: %(default)s)")
