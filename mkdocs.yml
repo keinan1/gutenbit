@@ -1,12 +1,13 @@
-site_name: Gutenbit
+site_name: gutenbit
 site_description: Fast local search across Project Gutenberg's literary works.
 site_url: https://gutenbit.textualist.org
 
-repo_name: Gutenbit
+repo_name: gutenbit
 repo_url: https://github.com/textualist/gutenbit
 
 theme:
   name: material
+  custom_dir: overrides
   language: en
   palette:
     - scheme: default

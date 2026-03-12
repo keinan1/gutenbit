@@ -1,10 +1,18 @@
-# Gutenbit
-
-Fast local search across public-domain literary works. Find, browse, and search books from your terminal or Python script.
+<div class="homepage-identity">
+  <h1 class="identity-wordmark">
+    <span class="identity-wordmark__sr-only">gutenbit</span>
+    <span class="tri" aria-hidden="true">
+      <span class="layer red">gutenbit</span>
+      <span class="layer blue">gutenbit</span>
+      <span class="layer black">gutenbit</span>
+    </span>
+  </h1>
+  <p class="identity-tagline">Fast local search across public-domain literary works. Find, browse, and search books from your terminal or Python script.</p>
+</div>
 
 ## Install
 
-Gutenbit is not published on PyPI yet, so the quickest way to try it is to run it directly from the GitHub repo:
+gutenbit is not published on PyPI yet, so the quickest way to try it is to run it directly from the GitHub repo:
 
 ```bash
 uvx --from git+https://github.com/textualist/gutenbit gutenbit --help
@@ -17,7 +25,7 @@ uv tool install git+https://github.com/textualist/gutenbit
 ```
 
 Then run `gutenbit --help`. Remove it later with `uv tool uninstall gutenbit`.
-Gutenbit stores its database and catalog cache in a `.gutenbit/` folder.
+gutenbit stores its database and catalog cache in a `.gutenbit/` folder.
 Installs from the default branch are development builds. Stable releases are the tagged GitHub releases in the `vX.Y.Z` format.
 To use `gutenbit` as a project dependency instead of a standalone CLI tool:
 
@@ -66,4 +74,4 @@ if book is not None:
 
 ## Project Gutenberg Access
 
-Gutenbit is an open-source project not affiliated with Project Gutenberg. It is for individual downloads, not bulk downloading. It prefers official mirrors and uses the main site only as a zip fallback, with a default `2.0` second delay between downloads. Gutenbit also sends an identifying default `User-Agent` on Gutenberg and PGLAF requests: `gutenbit/<version> (+https://gutenbit.textualist.org)`. Review Project Gutenberg's [Robot Access Policy](https://www.gutenberg.org/policy/robot_access.html) and [Terms of Use](https://www.gutenberg.org/policy/terms_of_use.html).
+gutenbit is an open-source project not affiliated with Project Gutenberg. It is for individual downloads, not bulk downloading. It prefers official mirrors and uses the main site only as a zip fallback, with a default `2.0` second delay between downloads. gutenbit also sends an identifying default `User-Agent` on Gutenberg and PGLAF requests: `gutenbit/<version> (+https://gutenbit.textualist.org)`. Review Project Gutenberg's [Robot Access Policy](https://www.gutenberg.org/policy/robot_access.html) and [Terms of Use](https://www.gutenberg.org/policy/terms_of_use.html).
