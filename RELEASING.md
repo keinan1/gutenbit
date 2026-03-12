@@ -37,7 +37,7 @@ Stable releases are published to PyPI. GitHub Releases receive the same verified
 
 ## Notes
 
-Stable users should install with `uv tool install gutenbit` or add the library with `uv add gutenbit`.
+Stable users should install from PyPI.
 Installs from `main` or from GitHub URLs are development builds, not stable releases.
 Docs pushes on `main` are validated but not deployed.
 If you need to republish docs for an existing release, run the `Manual Docs Deploy` workflow against that release tag.

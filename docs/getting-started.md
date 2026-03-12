@@ -4,34 +4,19 @@ This guide walks through a complete workflow: find a book, download it, explore 
 
 ## Installation
 
-Install the latest stable release from PyPI:
-
-```bash
-uv tool install gutenbit
-```
-
-Then run `gutenbit --help`. For one-off use without a persistent install:
+Try the latest stable release from PyPI without a persistent install:
 
 ```bash
 uvx gutenbit --help
 ```
 
-gutenbit stores its database and catalog cache in a `.gutenbit/` folder. Stable releases are published to PyPI from `vX.Y.Z` tags, while installs from the default branch remain development builds.
-
-If you need an unreleased development build from GitHub instead:
+If you want a persistent `gutenbit` command:
 
 ```bash
-uvx --from git+https://github.com/textualist/gutenbit gutenbit --help
-uv tool install git+https://github.com/textualist/gutenbit
+uv tool install gutenbit
 ```
 
-If you want to use the Python package inside a `uv` project instead of installing the CLI globally:
-
-```bash
-uv add gutenbit
-```
-
-Use `uv add git+https://github.com/textualist/gutenbit` only when you specifically need an unreleased branch or commit.
+gutenbit stores its database and catalog cache in a `.gutenbit/` folder. Stable releases are published to PyPI from `vX.Y.Z` tags.
 
 ## CLI walkthrough
 

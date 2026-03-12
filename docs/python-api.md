@@ -2,14 +2,6 @@
 
 gutenbit exposes four public classes and one function from its top-level package.
 
-Add the latest stable release from PyPI when using it as a library:
-
-```bash
-uv add gutenbit
-```
-
-Stable releases are published to PyPI from `vX.Y.Z` tags. Use `uv add git+https://github.com/textualist/gutenbit` only when you specifically need an unreleased branch or commit from GitHub.
-
 ```python
 from gutenbit import Catalog, BookRecord, Database, SearchResult, Chunk, chunk_html
 ```
