@@ -194,6 +194,57 @@ def test_div_reset_on_new_broad_heading():
     assert headings[3].div2 == "CHAPTER I"
 
 
+def test_same_rank_part_and_book_headings_stay_nested():
+    html = _make_html("""
+    <p><a href="#part1" class="pginternal">PART I</a></p>
+    <p><a href="#book1" class="pginternal">Book I. The History Of A Family</a></p>
+    <p><a href="#chap1" class="pginternal">Chapter I. Fyodor Pavlovitch Karamazov</a></p>
+    <p><a href="#book2" class="pginternal">Book II. An Unfortunate Gathering</a></p>
+    <p><a href="#chap2" class="pginternal">Chapter I. They Arrive At The Monastery</a></p>
+    <p><a href="#part2" class="pginternal">PART II</a></p>
+    <p><a href="#book3" class="pginternal">Book III. The Sensualists</a></p>
+    <p><a href="#chap3" class="pginternal">Chapter I. In The Servants’ Quarters</a></p>
+    <h2><a id="part1"></a>PART I</h2>
+    <h2><a id="book1"></a>Book I. The History Of A Family</h2>
+    <h2><a id="chap1"></a>Chapter I. Fyodor Pavlovitch Karamazov</h2>
+    <p>Family history.</p>
+    <h2><a id="book2"></a>Book II. An Unfortunate Gathering</h2>
+    <h2><a id="chap2"></a>Chapter I. They Arrive At The Monastery</h2>
+    <p>Monastery chapter.</p>
+    <h2><a id="part2"></a>PART II</h2>
+    <h2><a id="book3"></a>Book III. The Sensualists</h2>
+    <h2><a id="chap3"></a>Chapter I. In The Servants’ Quarters</h2>
+    <p>Servants chapter.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    assert [h.content for h in headings] == [
+        "PART I",
+        "Book I. The History Of A Family",
+        "Chapter I. Fyodor Pavlovitch Karamazov",
+        "Book II. An Unfortunate Gathering",
+        "Chapter I. They Arrive At The Monastery",
+        "PART II",
+        "Book III. The Sensualists",
+        "Chapter I. In The Servants’ Quarters",
+    ]
+    assert headings[1].div1 == "PART I"
+    assert headings[1].div2 == "Book I. The History Of A Family"
+    assert headings[2].div1 == "PART I"
+    assert headings[2].div2 == "Book I. The History Of A Family"
+    assert headings[2].div3 == "Chapter I. Fyodor Pavlovitch Karamazov"
+    assert headings[3].div1 == "PART I"
+    assert headings[3].div2 == "Book II. An Unfortunate Gathering"
+    assert headings[5].div1 == "PART II"
+    assert headings[5].div2 == ""
+    assert headings[6].div1 == "PART II"
+    assert headings[6].div2 == "Book III. The Sensualists"
+    assert headings[7].div1 == "PART II"
+    assert headings[7].div2 == "Book III. The Sensualists"
+    assert headings[7].div3 == "Chapter I. In The Servants’ Quarters"
+
+
 def test_body_headings_refine_partial_toc():
     html = _make_html("""
     <table><tbody>

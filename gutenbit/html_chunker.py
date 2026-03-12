@@ -52,12 +52,19 @@ class Chunk:
 # ---------------------------------------------------------------------------
 
 _BROAD_KEYWORDS = frozenset({"book", "part", "act", "epilogue", "volume"})
+_BROAD_NESTING_DEPTHS = {
+    "volume": 1,
+    "part": 2,
+    "epilogue": 2,
+    "book": 3,
+    "act": 3,
+}
 _STRUCTURAL_KEYWORD_ALIASES = {
     "actus": "act",
     "scena": "scene",
     "scoena": "scene",
 }
-CHUNKER_VERSION = 23
+CHUNKER_VERSION = 24
 
 # Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
 # with no subtitle text — used to merge consecutive number + title headings.
@@ -209,6 +216,7 @@ def chunk_html(html: str) -> list[Chunk]:
         return []
 
     sections = _normalize_collection_titles(sections)
+    sections = _nest_broad_subdivisions(sections)
     sections = _merge_adjacent_duplicate_sections(sections)
 
     # Compact levels so the shallowest level maps to div1.
@@ -1119,6 +1127,66 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
             )
             for section_idx in range(idx + 1, next_idx):
                 new_levels[section_idx] += 1
+
+    return [
+        _Section(
+            section.anchor_id,
+            section.heading_text,
+            new_levels[idx],
+            section.body_anchor,
+            section.heading_rank,
+        )
+        for idx, section in enumerate(sections)
+    ]
+
+
+def _broad_nesting_depth(heading_text: str) -> int | None:
+    return _BROAD_NESTING_DEPTHS.get(_heading_keyword(heading_text))
+
+
+def _nest_broad_subdivisions(sections: list[_Section]) -> list[_Section]:
+    """Nest same-rank broad headings when their keywords imply containment.
+
+    Some Gutenberg editions use the same heading rank for containers like
+    ``PART`` and their child ``Book`` headings. Preserve that hierarchy by
+    shifting the inner broad run and its descendants one level deeper.
+    """
+    if len(sections) < 3:
+        return sections
+
+    new_levels = [section.level for section in sections]
+    changed = False
+
+    for idx, section in enumerate(sections):
+        outer_depth = _broad_nesting_depth(section.heading_text)
+        if outer_depth is None:
+            continue
+
+        outer_level = new_levels[idx]
+        found_nested_broad = False
+
+        for inner_idx in range(idx + 1, len(sections)):
+            current_level = new_levels[inner_idx]
+            if current_level < outer_level:
+                break
+
+            current_depth = _broad_nesting_depth(sections[inner_idx].heading_text)
+            if current_level == outer_level:
+                if current_depth is None or current_depth <= outer_depth:
+                    break
+                found_nested_broad = True
+
+            if not found_nested_broad:
+                continue
+
+            if current_level == outer_level or current_level > outer_level:
+                shifted_level = min(4, current_level + 1)
+                if shifted_level != current_level:
+                    new_levels[inner_idx] = shifted_level
+                    changed = True
+
+    if not changed:
+        return sections
 
     return [
         _Section(

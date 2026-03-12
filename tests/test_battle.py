@@ -309,6 +309,44 @@ def test_leviathan_keeps_bellarmines_books_nested_within_chapter_xlii():
     assert chapter_xliii.div3 == ""
 
 
+def test_brothers_karamazov_keeps_books_nested_within_parts():
+    headings = _headings(28054)
+
+    book_one = next(
+        heading for heading in headings if heading.content == "Book I. The History Of A Family"
+    )
+    chapter_one = next(
+        heading
+        for heading in headings
+        if heading.content == "Chapter I. Fyodor Pavlovitch Karamazov"
+    )
+    book_twelve = next(
+        heading for heading in headings if heading.content == "Book XII. A Judicial Error"
+    )
+    epilogue_chapter = next(
+        heading
+        for heading in headings
+        if heading.content == "Chapter III. Ilusha’s Funeral. The Speech At The Stone"
+    )
+
+    assert [heading.content for heading in headings if heading.content.startswith("PART ")] == [
+        "PART I",
+        "PART II",
+        "PART III",
+        "PART IV",
+    ]
+    assert book_one.div1 == "PART I"
+    assert book_one.div2 == "Book I. The History Of A Family"
+    assert chapter_one.div1 == "PART I"
+    assert chapter_one.div2 == "Book I. The History Of A Family"
+    assert chapter_one.div3 == "Chapter I. Fyodor Pavlovitch Karamazov"
+    assert book_twelve.div1 == "PART IV"
+    assert book_twelve.div2 == "Book XII. A Judicial Error"
+    assert epilogue_chapter.div1 == "EPILOGUE"
+    assert epilogue_chapter.div2 == "Chapter III. Ilusha’s Funeral. The Speech At The Stone"
+    assert epilogue_chapter.div3 == ""
+
+
 def test_moby_dick_keeps_etymology_and_extracts_before_chapter_one():
     heading_texts = [heading.content for heading in _headings(15)]
 
