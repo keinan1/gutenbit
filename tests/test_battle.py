@@ -309,6 +309,108 @@ def test_leviathan_keeps_bellarmines_books_nested_within_chapter_xlii():
     assert chapter_xliii.div3 == ""
 
 
+def test_brothers_karamazov_keeps_books_nested_within_parts():
+    headings = _headings(28054)
+
+    book_one = next(
+        heading for heading in headings if heading.content == "Book I. The History Of A Family"
+    )
+    chapter_one = next(
+        heading
+        for heading in headings
+        if heading.content == "Chapter I. Fyodor Pavlovitch Karamazov"
+    )
+    book_twelve = next(
+        heading for heading in headings if heading.content == "Book XII. A Judicial Error"
+    )
+    epilogue_chapter = next(
+        heading
+        for heading in headings
+        if heading.content == "Chapter III. Ilusha’s Funeral. The Speech At The Stone"
+    )
+
+    assert [heading.content for heading in headings if heading.content.startswith("PART ")] == [
+        "PART I",
+        "PART II",
+        "PART III",
+        "PART IV",
+    ]
+    assert book_one.div1 == "PART I"
+    assert book_one.div2 == "Book I. The History Of A Family"
+    assert chapter_one.div1 == "PART I"
+    assert chapter_one.div2 == "Book I. The History Of A Family"
+    assert chapter_one.div3 == "Chapter I. Fyodor Pavlovitch Karamazov"
+    assert book_twelve.div1 == "PART IV"
+    assert book_twelve.div2 == "Book XII. A Judicial Error"
+    assert epilogue_chapter.div1 == "EPILOGUE"
+    assert epilogue_chapter.div2 == "Chapter III. Ilusha’s Funeral. The Speech At The Stone"
+    assert epilogue_chapter.div3 == ""
+
+
+def test_decameron_does_not_nest_days_under_proem():
+    headings = _headings(23700)
+
+    proem = next(heading for heading in headings if heading.content == "Proem")
+    day_one = next(heading for heading in headings if heading.content == "Day the First")
+    first_story = next(heading for heading in headings if heading.content == "THE FIRST STORY")
+    conclusion = next(
+        heading for heading in headings if heading.content == "Conclusion of the Author"
+    )
+
+    assert proem.div1 == "Proem"
+    assert proem.div2 == ""
+    assert day_one.div1 == "Day the First"
+    assert day_one.div2 == ""
+    assert first_story.div1 == "Day the First"
+    assert first_story.div2 == "THE FIRST STORY"
+    assert first_story.div3 == ""
+    assert conclusion.div1 == "Conclusion of the Author"
+    assert conclusion.div2 == ""
+
+
+def test_leaves_of_grass_keeps_poems_nested_within_books():
+    headings = _headings(1322)
+    paragraphs = _paragraphs(1322)
+
+    book_one = next(heading for heading in headings if heading.content == "BOOK I. INSCRIPTIONS")
+    one_self = next(heading for heading in headings if heading.content == "One’s-Self I Sing")
+    book_two = next(heading for heading in headings if heading.content == "BOOK II")
+    book_two_text = next(
+        paragraph
+        for paragraph in paragraphs
+        if paragraph.div1 == "BOOK II"
+        and "Starting from fish-shape Paumanok where I was born" in paragraph.content
+    )
+
+    assert book_one.div1 == "BOOK I. INSCRIPTIONS"
+    assert book_one.div2 == ""
+    assert one_self.div1 == "BOOK I. INSCRIPTIONS"
+    assert one_self.div2 == "One’s-Self I Sing"
+    assert book_two.div1 == "BOOK II"
+    assert book_two.div2 == ""
+    assert book_two_text.div1 == "BOOK II"
+    assert book_two_text.div2 == ""
+
+
+def test_souls_of_black_folk_keeps_numbered_chapters():
+    headings = _headings(408)
+
+    chapter_one = next(
+        heading for heading in headings if heading.content == "I. Of Our Spiritual Strivings"
+    )
+    chapter_fourteen = next(
+        heading for heading in headings if heading.content == "XIV. Of the Sorrow Songs"
+    )
+    afterthought = next(heading for heading in headings if heading.content == "The Afterthought")
+
+    assert chapter_one.div1 == "I. Of Our Spiritual Strivings"
+    assert chapter_one.div2 == ""
+    assert chapter_fourteen.div1 == "XIV. Of the Sorrow Songs"
+    assert chapter_fourteen.div2 == ""
+    assert afterthought.div1 == "The Afterthought"
+    assert afterthought.div2 == ""
+
+
 def test_moby_dick_keeps_etymology_and_extracts_before_chapter_one():
     heading_texts = [heading.content for heading in _headings(15)]
 

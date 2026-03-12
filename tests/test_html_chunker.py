@@ -194,6 +194,90 @@ def test_div_reset_on_new_broad_heading():
     assert headings[3].div2 == "CHAPTER I"
 
 
+def test_same_rank_part_and_book_headings_stay_nested():
+    html = _make_html("""
+    <p><a href="#part1" class="pginternal">PART I</a></p>
+    <p><a href="#book1" class="pginternal">Book I. The History Of A Family</a></p>
+    <p><a href="#chap1" class="pginternal">Chapter I. Fyodor Pavlovitch Karamazov</a></p>
+    <p><a href="#book2" class="pginternal">Book II. An Unfortunate Gathering</a></p>
+    <p><a href="#chap2" class="pginternal">Chapter I. They Arrive At The Monastery</a></p>
+    <p><a href="#part2" class="pginternal">PART II</a></p>
+    <p><a href="#book3" class="pginternal">Book III. The Sensualists</a></p>
+    <p><a href="#chap3" class="pginternal">Chapter I. In The Servants’ Quarters</a></p>
+    <h2><a id="part1"></a>PART I</h2>
+    <h2><a id="book1"></a>Book I. The History Of A Family</h2>
+    <h2><a id="chap1"></a>Chapter I. Fyodor Pavlovitch Karamazov</h2>
+    <p>Family history.</p>
+    <h2><a id="book2"></a>Book II. An Unfortunate Gathering</h2>
+    <h2><a id="chap2"></a>Chapter I. They Arrive At The Monastery</h2>
+    <p>Monastery chapter.</p>
+    <h2><a id="part2"></a>PART II</h2>
+    <h2><a id="book3"></a>Book III. The Sensualists</h2>
+    <h2><a id="chap3"></a>Chapter I. In The Servants’ Quarters</h2>
+    <p>Servants chapter.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    assert [h.content for h in headings] == [
+        "PART I",
+        "Book I. The History Of A Family",
+        "Chapter I. Fyodor Pavlovitch Karamazov",
+        "Book II. An Unfortunate Gathering",
+        "Chapter I. They Arrive At The Monastery",
+        "PART II",
+        "Book III. The Sensualists",
+        "Chapter I. In The Servants’ Quarters",
+    ]
+    assert headings[1].div1 == "PART I"
+    assert headings[1].div2 == "Book I. The History Of A Family"
+    assert headings[2].div1 == "PART I"
+    assert headings[2].div2 == "Book I. The History Of A Family"
+    assert headings[2].div3 == "Chapter I. Fyodor Pavlovitch Karamazov"
+    assert headings[3].div1 == "PART I"
+    assert headings[3].div2 == "Book II. An Unfortunate Gathering"
+    assert headings[5].div1 == "PART II"
+    assert headings[5].div2 == ""
+    assert headings[6].div1 == "PART II"
+    assert headings[6].div2 == "Book III. The Sensualists"
+    assert headings[7].div1 == "PART II"
+    assert headings[7].div2 == "Book III. The Sensualists"
+    assert headings[7].div3 == "Chapter I. In The Servants’ Quarters"
+
+
+def test_more_prominent_heading_run_is_not_nested_under_proem():
+    html = _make_html("""
+    <p><a href="#proem" class="pginternal"><b>PROEM.</b></a></p>
+    <p><b><a href="#day1" class="pginternal">DAY THE FIRST</a></b></p>
+    <p><a href="#story1" class="pginternal">THE FIRST STORY</a></p>
+    <p><b><a href="#conclusion" class="pginternal">CONCLUSION OF THE AUTHOR</a></b></p>
+    <h2><a id="proem"></a>Proem</h2>
+    <p>Proem text.</p>
+    <h1><a id="day1"></a>Day the First</h1>
+    <p>Day introduction.</p>
+    <h2><a id="story1"></a>THE FIRST STORY</h2>
+    <p>Story text.</p>
+    <h1><a id="conclusion"></a>Conclusion of the Author</h1>
+    <p>Conclusion text.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    assert [h.content for h in headings] == [
+        "Proem",
+        "Day the First",
+        "THE FIRST STORY",
+        "Conclusion of the Author",
+    ]
+    assert headings[0].div1 == "Proem"
+    assert headings[0].div2 == ""
+    assert headings[1].div1 == "Day the First"
+    assert headings[1].div2 == ""
+    assert headings[2].div1 != "Proem"
+    assert headings[3].div1 == "Conclusion of the Author"
+    assert headings[3].div2 == ""
+
+
 def test_body_headings_refine_partial_toc():
     html = _make_html("""
     <table><tbody>
@@ -354,6 +438,95 @@ def test_collection_titles_promote_to_top_level_when_repeated():
     assert headings[4].div2 == "ACT I"
     assert headings[6].div1 == "POEM THREE"
     assert paragraphs[2].div1 == "POEM THREE"
+
+
+def test_title_like_poems_stay_nested_within_books():
+    html = _make_html("""
+    <p><a href="#book1" class="pginternal"><b>BOOK I. INSCRIPTIONS</b></a></p>
+    <p><a href="#poem1" class="pginternal">One’s-Self I Sing</a></p>
+    <p><a href="#poem2" class="pginternal">As I Ponder’d in Silence</a></p>
+    <p><a href="#book2" class="pginternal"><b>BOOK II</b></a></p>
+    <h2><a id="book1"></a>BOOK I. INSCRIPTIONS</h2>
+    <h2><a id="poem1"></a>One’s-Self I Sing</h2>
+    <p>Poem one text.</p>
+    <h2><a id="poem2"></a>As I Ponder’d in Silence</h2>
+    <p>Poem two text.</p>
+    <h2><a id="book2"></a>BOOK II</h2>
+    <p>Starting from Paumanok</p>
+    <pre>
+  Starting from fish-shape Paumanok where I was born,
+  Well-begotten, and rais’d by a perfect mother,
+    </pre>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    paragraphs = [c for c in chunks if c.kind == "text"]
+
+    assert [h.content for h in headings] == [
+        "BOOK I. INSCRIPTIONS",
+        "One’s-Self I Sing",
+        "As I Ponder’d in Silence",
+        "BOOK II",
+    ]
+    assert headings[0].div1 == "BOOK I. INSCRIPTIONS"
+    assert headings[1].div1 == "BOOK I. INSCRIPTIONS"
+    assert headings[1].div2 == "One’s-Self I Sing"
+    assert headings[2].div1 == "BOOK I. INSCRIPTIONS"
+    assert headings[2].div2 == "As I Ponder’d in Silence"
+    assert headings[3].div1 == "BOOK II"
+    assert headings[3].div2 == ""
+
+    book_two_paragraphs = [paragraph for paragraph in paragraphs if paragraph.div1 == "BOOK II"]
+    assert [paragraph.content for paragraph in book_two_paragraphs] == [
+        "Starting from Paumanok",
+        (
+            "Starting from fish-shape Paumanok where I was born,\n"
+            "  Well-begotten, and rais’d by a perfect mother,"
+        ),
+    ]
+
+
+def test_pre_blocks_are_collected_as_text_chunks():
+    html = _make_html("""
+    <p><a href="#book2" class="pginternal"><b>BOOK II</b></a></p>
+    <h2><a id="book2"></a>BOOK II</h2>
+    <p>Starting from Paumanok</p>
+    <pre>
+  Starting from fish-shape Paumanok where I was born,
+  Well-begotten, and rais’d by a perfect mother,
+    </pre>
+    """)
+    chunks = chunk_html(html)
+    paragraphs = [c for c in chunks if c.kind == "text"]
+
+    assert [paragraph.div1 for paragraph in paragraphs] == ["BOOK II", "BOOK II"]
+    assert paragraphs[0].content == "Starting from Paumanok"
+    assert (
+        paragraphs[1].content
+        == "Starting from fish-shape Paumanok where I was born,\n"
+        "  Well-begotten, and rais’d by a perfect mother,"
+    )
+
+
+def test_enumerated_h3_headings_are_kept_as_sections():
+    html = _make_html("""
+    <h3><a id="chap1"></a>I.<br>Of Our Spiritual Strivings</h3>
+    <p>First chapter text.</p>
+    <h3><a id="chap2"></a>II.<br>Of the Dawn of Freedom</h3>
+    <p>Second chapter text.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    paragraphs = [c for c in chunks if c.kind == "text"]
+
+    assert [heading.content for heading in headings] == [
+        "I. Of Our Spiritual Strivings",
+        "II. Of the Dawn of Freedom",
+    ]
+    assert headings[0].div1 == "I. Of Our Spiritual Strivings"
+    assert headings[1].div1 == "II. Of the Dawn of Freedom"
+    assert paragraphs[0].div1 == "I. Of Our Spiritual Strivings"
+    assert paragraphs[1].div1 == "II. Of the Dawn of Freedom"
 
 
 def test_single_work_title_is_not_promoted_above_parts():

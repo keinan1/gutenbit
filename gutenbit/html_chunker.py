@@ -52,12 +52,19 @@ class Chunk:
 # ---------------------------------------------------------------------------
 
 _BROAD_KEYWORDS = frozenset({"book", "part", "act", "epilogue", "volume"})
+_BROAD_NESTING_DEPTHS = {
+    "volume": 1,
+    "part": 2,
+    "epilogue": 2,
+    "book": 3,
+    "act": 3,
+}
 _STRUCTURAL_KEYWORD_ALIASES = {
     "actus": "act",
     "scena": "scene",
     "scoena": "scene",
 }
-CHUNKER_VERSION = 23
+CHUNKER_VERSION = 26
 
 # Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
 # with no subtitle text — used to merge consecutive number + title headings.
@@ -209,6 +216,8 @@ def chunk_html(html: str) -> list[Chunk]:
         return []
 
     sections = _normalize_collection_titles(sections)
+    sections = _nest_broad_subdivisions(sections)
+    sections = _promote_more_prominent_heading_runs(sections)
     sections = _merge_adjacent_duplicate_sections(sections)
 
     # Compact levels so the shallowest level maps to div1.
@@ -743,7 +752,7 @@ def _parse_heading_sections(
                 heading_text = f"{heading_text} {subtitle}"
                 i += 1
 
-        elif _is_ignorable_fallback_heading(heading_text):
+        elif _is_ignorable_fallback_heading(heading_text, heading_rank=row.rank):
             i += 1
             continue
 
@@ -1085,6 +1094,15 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
     title_indices_by_level: dict[int, list[int]] = defaultdict(list)
     container_title_indices_by_level: dict[int, list[int]] = defaultdict(list)
 
+    def _has_same_level_collection_title_since_lower_level(title_idx: int, *, level: int) -> bool:
+        for previous_idx in range(title_idx - 1, -1, -1):
+            previous_section = sections[previous_idx]
+            if previous_section.level < level:
+                return False
+            if previous_section.level == level and _is_collection_title(previous_section):
+                return True
+        return False
+
     for idx, section in enumerate(sections):
         if not _is_collection_title(section):
             continue
@@ -1093,6 +1111,11 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
         for next_idx in range(idx + 1, len(sections)):
             next_section = sections[next_idx]
             if _is_collection_title(next_section) and next_section.level == section.level:
+                break
+            next_depth = _broad_nesting_depth(next_section.heading_text)
+            if next_depth is None:
+                continue
+            if _has_same_level_collection_title_since_lower_level(idx, level=section.level):
                 break
             if _heading_keyword(next_section.heading_text) in _BROAD_KEYWORDS:
                 container_title_indices_by_level[section.level].append(idx)
@@ -1119,6 +1142,130 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
             )
             for section_idx in range(idx + 1, next_idx):
                 new_levels[section_idx] += 1
+
+    return [
+        _Section(
+            section.anchor_id,
+            section.heading_text,
+            new_levels[idx],
+            section.body_anchor,
+            section.heading_rank,
+        )
+        for idx, section in enumerate(sections)
+    ]
+
+
+def _broad_nesting_depth(heading_text: str) -> int | None:
+    return _BROAD_NESTING_DEPTHS.get(_heading_keyword(heading_text))
+
+
+def _nest_broad_subdivisions(sections: list[_Section]) -> list[_Section]:
+    """Nest same-rank broad headings when their keywords imply containment.
+
+    Some Gutenberg editions use the same heading rank for containers like
+    ``PART`` and their child ``Book`` headings. Preserve that hierarchy by
+    shifting the inner broad run and its descendants one level deeper.
+    """
+    if len(sections) < 3:
+        return sections
+
+    new_levels = [section.level for section in sections]
+    changed = False
+
+    for idx, section in enumerate(sections):
+        outer_depth = _broad_nesting_depth(section.heading_text)
+        if outer_depth is None:
+            continue
+
+        outer_level = new_levels[idx]
+        found_nested_broad = False
+
+        for inner_idx in range(idx + 1, len(sections)):
+            current_level = new_levels[inner_idx]
+            if current_level < outer_level:
+                break
+
+            current_depth = _broad_nesting_depth(sections[inner_idx].heading_text)
+            if current_level == outer_level:
+                if current_depth is None or current_depth <= outer_depth:
+                    break
+                found_nested_broad = True
+
+            if not found_nested_broad:
+                continue
+
+            if current_level == outer_level or current_level > outer_level:
+                shifted_level = min(4, current_level + 1)
+                if shifted_level != current_level:
+                    new_levels[inner_idx] = shifted_level
+                    changed = True
+
+    if not changed:
+        return sections
+
+    return [
+        _Section(
+            section.anchor_id,
+            section.heading_text,
+            new_levels[idx],
+            section.body_anchor,
+            section.heading_rank,
+        )
+        for idx, section in enumerate(sections)
+    ]
+
+
+def _promote_more_prominent_heading_runs(sections: list[_Section]) -> list[_Section]:
+    """Promote runs whose heading rank outranks their assigned parent.
+
+    Some books place opening matter like ``Proem`` in ``h2`` and then start the
+    real top-level work structure in ``h1``. If the later run is currently
+    nested under that lower-rank opener, lift the run until its first section
+    becomes a sibling of the false parent.
+    """
+    if len(sections) < 2:
+        return sections
+
+    new_levels = [section.level for section in sections]
+    changed = False
+    idx = 0
+
+    while idx < len(sections):
+        current_level = new_levels[idx]
+        current_rank = sections[idx].heading_rank
+        if current_level <= 1 or current_rank is None:
+            idx += 1
+            continue
+
+        parent_idx: int | None = None
+        for previous_idx in range(idx - 1, -1, -1):
+            if new_levels[previous_idx] < current_level:
+                parent_idx = previous_idx
+                break
+
+        if parent_idx is None:
+            idx += 1
+            continue
+
+        parent_rank = sections[parent_idx].heading_rank
+        parent_level = new_levels[parent_idx]
+        if parent_rank is None or current_rank >= parent_rank:
+            idx += 1
+            continue
+
+        shift = current_level - parent_level
+        run_end = idx
+        while run_end < len(sections) and new_levels[run_end] > parent_level:
+            promoted_level = max(1, new_levels[run_end] - shift)
+            if promoted_level != new_levels[run_end]:
+                new_levels[run_end] = promoted_level
+                changed = True
+            run_end += 1
+
+        idx = run_end
+
+    if not changed:
+        return sections
 
     return [
         _Section(
@@ -1216,23 +1363,28 @@ def _build_paragraph_index(
     tag_positions: dict[int, int],
     bounds: _ContentBounds,
 ) -> tuple[list[_IndexedParagraph], list[int]]:
-    """Pre-collect all usable paragraphs with positions and text.
+    """Pre-collect all usable paragraph-like text blocks with positions and text.
 
     Builds a sorted list once so section-range queries use bisect instead of
-    repeated ``find_all_next("p")`` traversals.
+    repeated traversals.
     """
     body = soup.find("body")
     if not body:
         return [], []
     result: list[_IndexedParagraph] = []
     positions: list[int] = []
-    for p in body.find_all("p"):
-        pos = tag_positions.get(id(p))
+    for block in body.find_all(["p", "pre"]):
+        pos = tag_positions.get(id(block))
         if pos is None or not bounds.contains(pos):
             continue
-        text = _extract_paragraph_text(p)
+        if block.name == "pre":
+            text = _extract_preformatted_text(block)
+            is_toc = False
+        else:
+            text = _extract_paragraph_text(block)
+            is_toc = _is_toc_paragraph(block)
         if text:
-            result.append(_IndexedParagraph(p, pos, text, _is_toc_paragraph(p)))
+            result.append(_IndexedParagraph(block, pos, text, is_toc))
             positions.append(pos)
     return result, positions
 
@@ -1305,6 +1457,16 @@ def _extract_paragraph_text(paragraph: Tag) -> str:
 
     _append_text(paragraph)
     return " ".join("".join(parts).split()).strip()
+
+
+def _extract_preformatted_text(pre: Tag) -> str:
+    """Return trimmed preformatted text while preserving line breaks."""
+    lines = [line.rstrip() for line in pre.get_text("\n").splitlines()]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines).strip()
 
 
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
@@ -1677,13 +1839,19 @@ def _broad_heading_with_enumerated_child(
     ) in _BROAD_KEYWORDS and _starts_with_enumerated_heading_prefix(next_heading_text)
 
 
-def _is_ignorable_fallback_heading(heading_text: str) -> bool:
+def _is_ignorable_fallback_heading(
+    heading_text: str,
+    *,
+    heading_rank: int | None,
+) -> bool:
     """Return True for heading-scan rows that are likely contents or inline subheads."""
     if _NON_SUBTITLE_HEADING_RE.fullmatch(heading_text):
         return True
     if _STANDALONE_APPARATUS_HEADING_RE.match(heading_text):
         return True
-    if _ENUMERATED_SUBHEADING_RE.match(heading_text):
+    if _ENUMERATED_SUBHEADING_RE.match(heading_text) and (
+        heading_rank is None or heading_rank >= 4
+    ):
         return True
     return len(_LIST_ITEM_MARKER_RE.findall(heading_text)) >= 2
 
