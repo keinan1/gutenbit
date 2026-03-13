@@ -660,3 +660,15 @@ def test_walden_keeps_chapters_under_walden_and_civil_disobedience_separate():
     assert conclusion.div2 == "Conclusion"
     assert civil_disobedience.div1 == "ON THE DUTY OF CIVIL DISOBEDIENCE"
     assert civil_disobedience.div2 == ""
+
+
+def test_waste_land_keeps_only_the_five_poem_sections():
+    heading_texts = [heading.content for heading in _headings(1321)]
+
+    assert heading_texts == [
+        "I. THE BURIAL OF THE DEAD",
+        "II. A GAME OF CHESS",
+        "III. THE FIRE SERMON",
+        "IV. DEATH BY WATER",
+        "V. WHAT THE THUNDER SAID",
+    ]
