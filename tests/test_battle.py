@@ -553,3 +553,30 @@ def test_woman_in_white_uses_contents_structure_and_skips_title_page_noise():
     assert second_epoch.div1 == "THE SECOND EPOCH"
     assert michelson.div1 == "THE SECOND EPOCH"
     assert final_narrative.div1 == "THE SECOND EPOCH"
+
+
+def test_tom_jones_keeps_book_subtitle_and_final_chapter_closer():
+    headings = _headings(6593)
+
+    book_three = next(
+        heading
+        for heading in headings
+        if heading.content == "THE READER MAY PICK UP SOME HINTS CONCERNING THE EDUCATION OF CHILDREN"
+    )
+    chapter_one = next(
+        heading for heading in headings if heading.content == "Chapter i. — Containing little or nothing"
+    )
+    chapter_last = next(heading for heading in headings if heading.content == "Chapter the last")
+    conclusion = next(
+        heading for heading in headings if heading.content == "In which the history is concluded"
+    )
+
+    assert book_three.div1.startswith("BOOK III.")
+    assert book_three.div2 == "THE READER MAY PICK UP SOME HINTS CONCERNING THE EDUCATION OF CHILDREN"
+    assert chapter_one.div1.startswith("BOOK III.")
+    assert chapter_one.div2 == "Chapter i. — Containing little or nothing"
+    assert chapter_last.div1 == "BOOK XVIII"
+    assert chapter_last.div2 == "Chapter the last"
+    assert conclusion.div1 == "BOOK XVIII"
+    assert conclusion.div2 == "Chapter the last"
+    assert conclusion.div3 == "In which the history is concluded"
