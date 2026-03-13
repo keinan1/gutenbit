@@ -640,3 +640,23 @@ def test_frederick_douglass_keeps_preface_letter_and_appendix():
         "CHAPTER II",
     ]
     assert heading_texts[-1] == "APPENDIX"
+
+
+def test_walden_keeps_chapters_under_walden_and_civil_disobedience_separate():
+    headings = _headings(205)
+
+    walden = next(heading for heading in headings if heading.content == "WALDEN")
+    economy = next(heading for heading in headings if heading.content == "Economy")
+    conclusion = next(heading for heading in headings if heading.content == "Conclusion")
+    civil_disobedience = next(
+        heading for heading in headings if heading.content == "ON THE DUTY OF CIVIL DISOBEDIENCE"
+    )
+
+    assert walden.div1 == "WALDEN"
+    assert walden.div2 == ""
+    assert economy.div1 == "WALDEN"
+    assert economy.div2 == "Economy"
+    assert conclusion.div1 == "WALDEN"
+    assert conclusion.div2 == "Conclusion"
+    assert civil_disobedience.div1 == "ON THE DUTY OF CIVIL DISOBEDIENCE"
+    assert civil_disobedience.div2 == ""
