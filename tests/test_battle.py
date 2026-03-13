@@ -672,3 +672,15 @@ def test_waste_land_keeps_only_the_five_poem_sections():
         "IV. DEATH BY WATER",
         "V. WHAT THE THUNDER SAID",
     ]
+
+
+def test_scarlet_letter_keeps_custom_house_before_the_novel():
+    heading_texts = [heading.content for heading in _headings(33)]
+
+    assert heading_texts[:4] == [
+        "THE CUSTOM-HOUSE",
+        "THE SCARLET LETTER",
+        "I. THE PRISON DOOR",
+        "II. THE MARKET-PLACE",
+    ]
+    assert heading_texts[-1] == "XXIV. CONCLUSION"
