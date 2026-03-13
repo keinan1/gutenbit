@@ -66,11 +66,11 @@ def test_shakespeare_anthology_nests_acts_and_scenes_under_work_titles():
     alls_well_scene = next(
         heading
         for heading in headings
-        if heading.content == "Scene I. Rossillon. A room in the Countess’s palace"
+        if heading.content == "Scene I. Rossillon. A room in the Countess’s palace."
     )
     assert alls_well_scene.div1 == "ALL’S WELL THAT ENDS WELL"
     assert alls_well_scene.div2 == "ACT I"
-    assert alls_well_scene.div3 == "Scene I. Rossillon. A room in the Countess’s palace"
+    assert alls_well_scene.div3 == "Scene I. Rossillon. A room in the Countess’s palace."
 
     sonnets = next(heading for heading in headings if heading.content == "THE SONNETS")
     assert sonnets.div1 == "THE SONNETS"
@@ -159,17 +159,17 @@ def test_hamlet_uses_paragraph_fallback_for_act_and_scene_structure():
     heading_texts = [heading.content for heading in headings]
 
     assert heading_texts[:4] == [
-        "Actus Primus",
-        "Scoena Prima",
-        "Scena Secunda",
+        "Actus Primus.",
+        "Scoena Prima.",
+        "Scena Secunda.",
         "Scena Tertia",
     ]
-    assert "Actus Secundus" in heading_texts
+    assert "Actus Secundus." in heading_texts
     assert "FINIS" not in heading_texts
 
-    first_scene = next(heading for heading in headings if heading.content == "Scoena Prima")
-    assert first_scene.div1 == "Actus Primus"
-    assert first_scene.div2 == "Scoena Prima"
+    first_scene = next(heading for heading in headings if heading.content == "Scoena Prima.")
+    assert first_scene.div1 == "Actus Primus."
+    assert first_scene.div2 == "Scoena Prima."
 
 
 def test_macbeth_uses_paragraph_fallback_for_full_play_structure():
@@ -177,25 +177,25 @@ def test_macbeth_uses_paragraph_fallback_for_full_play_structure():
     heading_texts = [heading.content for heading in headings]
 
     assert heading_texts[:8] == [
-        "Actus Primus",
-        "Scoena Prima",
-        "Scena Secunda",
-        "Scena Tertia",
-        "Scena Quarta",
-        "Scena Quinta",
-        "Scena Sexta",
-        "Scena Septima",
+        "Actus Primus.",
+        "Scoena Prima.",
+        "Scena Secunda.",
+        "Scena Tertia.",
+        "Scena Quarta.",
+        "Scena Quinta.",
+        "Scena Sexta.",
+        "Scena Septima.",
     ]
     assert len(headings) == 28
-    assert "Actus Quintus" in heading_texts
+    assert "Actus Quintus." in heading_texts
     assert "FINIS" not in heading_texts
 
     act_two_scene_one = next(
         heading
         for heading in headings
-        if heading.content == "Scena Prima" and heading.div1 == "Actus Secundus"
+        if heading.content == "Scena Prima." and heading.div1 == "Actus Secundus."
     )
-    assert act_two_scene_one.div2 == "Scena Prima"
+    assert act_two_scene_one.div2 == "Scena Prima."
 
 
 def test_republic_preserves_book_headings_over_dialogue_speakers():
@@ -239,11 +239,11 @@ def test_canterbury_keeps_troilus_books_and_skips_garbage_headings():
     troilus_index = heading_texts.index("TROILUS AND CRESSIDA")
     assert heading_texts[troilus_index : troilus_index + 6] == [
         "TROILUS AND CRESSIDA",
-        "THE FIRST BOOK",
-        "THE SECOND BOOK",
-        "THE THIRD BOOK",
+        "THE FIRST BOOK.",
+        "THE SECOND BOOK.",
+        "THE THIRD BOOK.",
         "THE FOURTH BOOK",
-        "THE FIFTH BOOK",
+        "THE FIFTH BOOK.",
     ]
     assert "act iv" not in heading_texts
     assert "scene v" not in heading_texts
@@ -255,13 +255,13 @@ def test_inferno_skips_stray_front_matter_numeral_sections():
     heading_texts = [heading.content for heading in headings]
 
     assert heading_texts[:7] == [
-        "PREFACE",
-        "FLORENCE AND DANTE",
-        "GIOTTO’S PORTRAIT OF DANTE",
-        "CANTO I",
-        "CANTO II",
-        "CANTO III",
-        "CANTO IV",
+        "PREFACE.",
+        "FLORENCE AND DANTE.",
+        "GIOTTO’S PORTRAIT OF DANTE.",
+        "CANTO I.",
+        "CANTO II.",
+        "CANTO III.",
+        "CANTO IV.",
     ]
     assert not any(text in {"II", "III", "IV", "V", "VI"} for text in heading_texts[:10])
 
@@ -414,7 +414,7 @@ def test_souls_of_black_folk_keeps_numbered_chapters():
 def test_moby_dick_keeps_etymology_and_extracts_before_chapter_one():
     heading_texts = [heading.content for heading in _headings(15)]
 
-    assert heading_texts[:4] == ["ETYMOLOGY", "EXTRACTS", "CHAPTER I", "CHAPTER II"]
+    assert heading_texts[:4] == ["ETYMOLOGY.", "EXTRACTS.", "CHAPTER I.", "CHAPTER II."]
 
 
 def test_dracula_keeps_the_final_note_section():
@@ -426,7 +426,7 @@ def test_dracula_keeps_the_final_note_section():
 def test_middlemarch_keeps_the_finale_section():
     heading_texts = [heading.content for heading in _headings(145)]
 
-    assert heading_texts[-2:] == ["FINALE", "THE END"]
+    assert heading_texts[-2:] == ["FINALE.", "THE END"]
 
 
 def test_jane_eyre_keeps_preface_and_note_before_chapter_one():
@@ -445,7 +445,7 @@ def test_les_miserables_keeps_preface_and_final_letter():
 def test_christmas_carol_keeps_preface_before_stave_one():
     heading_texts = [heading.content for heading in _headings(46)]
 
-    assert heading_texts[:3] == ["PREFACE", "STAVE ONE", "STAVE TWO"]
+    assert heading_texts[:3] == ["PREFACE", "STAVE ONE.", "STAVE TWO."]
 
 
 def test_tom_sawyer_keeps_preface_before_chapter_one():
@@ -458,9 +458,9 @@ def test_gulliver_keeps_both_prefatory_sections_before_part_one():
     heading_texts = [heading.content for heading in _headings(829)]
 
     assert heading_texts[:3] == [
-        "THE PUBLISHER TO THE READER",
-        "A LETTER FROM CAPTAIN GULLIVER TO HIS COUSIN SYMPSON",
-        "PART I. A VOYAGE TO LILLIPUT",
+        "THE PUBLISHER TO THE READER.",
+        "A LETTER FROM CAPTAIN GULLIVER TO HIS COUSIN SYMPSON.",
+        "PART I. A VOYAGE TO LILLIPUT.",
     ]
 
 
