@@ -107,7 +107,7 @@ JOIN books b ON b.id = c.book_id
 WHERE chunks_fts MATCH ?
 """
 
-_DIV_TRAILING_PUNCT_RE = re.compile(r"[.,;:!?]+$")
+_DIV_TRAILING_PUNCT_RE = re.compile(r"(?:\s*[\]\)\"'”’.,;:!?])+\s*$")
 _DIV_PUNCT_SPACING_RE = re.compile(r"\s*([.,;:!?])\s*")
 SearchOrder = Literal["rank", "first", "last"]
 IngestStage = Literal["download", "chunk", "store", "delay", "done", "failed"]
@@ -118,7 +118,7 @@ def _normalize_div_segment(value: str) -> str:
     """Normalize a div path segment for stable matching."""
     cleaned = " ".join(value.split()).strip().casefold()
     cleaned = _DIV_PUNCT_SPACING_RE.sub(r"\1", cleaned)
-    return _DIV_TRAILING_PUNCT_RE.sub("", cleaned)
+    return _DIV_TRAILING_PUNCT_RE.sub("", cleaned).strip()
 
 
 def _div_parts_match(query: list[str], row: list[str]) -> bool:

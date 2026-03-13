@@ -65,7 +65,7 @@ _STRUCTURAL_KEYWORD_ALIASES = {
     "scoena": "scene",
 }
 HTML_PARSER_BACKEND = "lxml"
-CHUNKER_VERSION = 27
+CHUNKER_VERSION = 28
 
 # Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
 # with no subtitle text — used to merge consecutive number + title headings.
@@ -949,13 +949,12 @@ def _extract_heading_text(heading_el: Tag) -> str:
 
 
 def _clean_heading_text(heading_text: str) -> str:
-    """Normalize heading text and strip trailing citation counters."""
+    """Normalize heading text while preserving source terminal punctuation."""
     text = " ".join(heading_text.split()).strip()
     text = _HEADING_CITATION_SUFFIX_RE.sub("", text)
     text = _STRUCTURAL_HEADING_SPACING_RE.sub(r"\1\2 \3", text)
     if _BRACKETED_NUMERIC_HEADING_RE.fullmatch(text):
         return text
-    text = text.rstrip(" .,;:])")
     trailer_match = _STRUCTURAL_HEADING_TRAILER_RE.search(text)
     if trailer_match:
         prefix = text[: trailer_match.start()].strip(" .,:;!?'\"-")
@@ -964,11 +963,17 @@ def _clean_heading_text(heading_text: str) -> str:
     return text
 
 
+def _front_matter_heading_key(heading_text: str) -> str:
+    return " ".join(heading_text.split()).strip().lower().rstrip(" .,:;!?])")
+
+
 def _is_non_structural_heading_text(heading_text: str) -> bool:
     """Return True for apparatus headings that should not become sections."""
     text = " ".join(heading_text.split()).strip()
     lowered = text.lower()
     if lowered in _FRONT_MATTER_HEADINGS:
+        return True
+    if _front_matter_heading_key(text) in _FRONT_MATTER_HEADINGS:
         return True
     if _PAGE_HEADING_RE.match(text):
         return True
@@ -1416,7 +1421,9 @@ def _paragraphs_in_range(
             continue
         if _heading_texts:
             lowered = ip.text.lower()
-            if lowered in _heading_texts or lowered in _FRONT_MATTER_HEADINGS:
+            if lowered in _heading_texts or (
+                _front_matter_heading_key(ip.text) in _FRONT_MATTER_HEADINGS
+            ):
                 continue
         paragraphs.append(ip.text)
     return paragraphs
@@ -1566,7 +1573,7 @@ def _is_structural_toc_link(link: Tag, link_text: str | None = None) -> bool:
     if not _is_toc_context_link(link):
         return False
 
-    previous_heading = _previous_heading_text(link).lower()
+    previous_heading = _front_matter_heading_key(_previous_heading_text(link))
     if previous_heading in _FRONT_MATTER_HEADINGS and previous_heading not in {
         "contents",
         "table of contents",
