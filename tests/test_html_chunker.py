@@ -79,6 +79,35 @@ def test_multiple_chapters():
     assert [h.content for h in headings] == ["CHAPTER I", "CHAPTER II", "CHAPTER III"]
 
 
+def test_structural_headings_preserve_terminal_punctuation():
+    html = _make_html("""
+    <p class="toc"><a href="#part2" class="pginternal">PART II. SEXUAL SELECTION</a></p>
+    <p class="toc"><a href="#ch10" class="pginternal">
+      CHAPTER X. SECONDARY SEXUAL CHARACTERS OF INSECTS
+    </a></p>
+    <p class="toc"><a href="#diptera" class="pginternal">ORDER, DIPTERA (FLIES).</a></p>
+    <p class="toc"><a href="#appendix" class="pginternal">CHAPTER XI. APPENDIX [II.]</a></p>
+    <h2><a id="part2"></a>PART II. SEXUAL SELECTION</h2>
+    <h3><a id="ch10"></a>CHAPTER X. SECONDARY SEXUAL CHARACTERS OF INSECTS</h3>
+    <h4><a id="diptera"></a>ORDER, DIPTERA (FLIES).</h4>
+    <p>Diptera paragraph.</p>
+    <h3><a id="appendix"></a>CHAPTER XI. APPENDIX [II.]</h3>
+    <p>Appendix paragraph.</p>
+    """)
+    headings = [chunk for chunk in chunk_html(html) if chunk.kind == "heading"]
+
+    diptera = next(heading for heading in headings if heading.content.startswith("ORDER, DIPTERA"))
+    appendix = next(heading for heading in headings if heading.content.startswith("CHAPTER XI"))
+
+    assert diptera.content == "ORDER, DIPTERA (FLIES)."
+    assert diptera.div1 == "PART II. SEXUAL SELECTION"
+    assert diptera.div2 == "CHAPTER X. SECONDARY SEXUAL CHARACTERS OF INSECTS"
+    assert diptera.div3 == "ORDER, DIPTERA (FLIES)."
+    assert appendix.content == "CHAPTER XI. APPENDIX [II.]"
+    assert appendix.div1 == "PART II. SEXUAL SELECTION"
+    assert appendix.div2 == "CHAPTER XI. APPENDIX [II.]"
+
+
 def test_positions_are_sequential():
     html = _make_html("""
     <p class="toc"><a href="#ch1" class="pginternal">CHAPTER I</a></p>
@@ -865,6 +894,21 @@ def test_heading_scan_skips_notes_and_page_markers():
     chunks = chunk_html(html)
     headings = [c.content for c in chunks if c.kind == "heading"]
     assert headings == ["CHAPTER I"]
+
+
+def test_heading_scan_skips_punctuated_contents_heading():
+    html = _make_html("""
+    <h2>PREFACE.</h2>
+    <p>Preface paragraph.</p>
+    <h2>CONTENTS.</h2>
+    <p>Contents paragraph.</p>
+    <h2>CHAPTER I.</h2>
+    <p>Chapter paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert headings == ["PREFACE.", "CHAPTER I."]
 
 
 def test_heading_scan_skips_front_contents_cluster_and_merges_split_headings():

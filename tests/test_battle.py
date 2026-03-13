@@ -508,6 +508,28 @@ def test_black_beauty_keeps_part_headings_as_independent_sections():
     assert heading_texts[heading_texts.index("Part II") + 1] == "22 Earlshall"
 
 
+def test_descent_of_man_preserves_terminal_heading_punctuation():
+    heading_texts = [heading.content for heading in _headings(2300)]
+
+    assert "ORDER, DIPTERA (FLIES)." in heading_texts
+    assert "ORDER, HEMIPTERA (FIELD-BUGS)." in heading_texts
+    assert "ORDER, ORTHOPTERA (CRICKETS AND GRASSHOPPERS)." in heading_texts
+    assert "ORDER, COLEOPTERA (BEETLES)." in heading_texts
+    assert "ORDER, DIPTERA (FLIES" not in heading_texts
+    assert "ORDER, COLEOPTERA (BEETLES" not in heading_texts
+
+
+def test_koran_preserves_terminal_bracket_punctuation():
+    heading_texts = [heading.content for heading in _headings(2800)]
+
+    assert "SURA LXXIV.-THE ENWRAPPED1 [II.]" in heading_texts
+    assert "SURA LXXIII. THE ENFOLDED1 [III.]" in heading_texts
+    assert "SURA XCIII.1-THE BRIGHTNESS [IV.]" in heading_texts
+    assert "SURA I.1 [VIII.]" in heading_texts
+    assert "SURA LXXIV.-THE ENWRAPPED1 [II" not in heading_texts
+    assert "SURA I.1 [VIII" not in heading_texts
+
+
 def test_candide_keeps_front_matter_headings_and_skips_attribution_noise():
     heading_texts = [heading.content for heading in _headings(19942)]
 

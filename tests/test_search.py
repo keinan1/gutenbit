@@ -1467,6 +1467,37 @@ def test_chunks_by_div_is_case_and_punctuation_spacing_insensitive(tmp_path):
     db.close()
 
 
+def test_chunks_by_div_ignores_trailing_closing_delimiters(tmp_path):
+    html = _make_html(
+        "Delimited Book",
+        """
+<p class="toc"><a href="#a" class="pginternal">PART II. SEXUAL SELECTION</a></p>
+<p class="toc"><a href="#b" class="pginternal">ORDER, DIPTERA (FLIES).</a></p>
+<h2><a id="a"></a>PART II. SEXUAL SELECTION</h2>
+<h3><a id="b"></a>ORDER, DIPTERA (FLIES).</h3>
+<p>First paragraph.</p>
+""",
+    )
+    db = Database(tmp_path / "delimited.db")
+    book = BookRecord(
+        id=23,
+        title="Delimited Book",
+        authors="Author, Test",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="2000-01-01",
+        type="Text",
+    )
+    db._store(book, chunk_html(html))
+    rows = db.chunks_by_div(23, "PART II. SEXUAL SELECTION / ORDER, DIPTERA (FLIES")
+    db.close()
+
+    assert len(rows) == 2
+    assert rows[0].div2 == "ORDER, DIPTERA (FLIES)."
+
+
 def test_view_section_accepts_punctuation_spacing_variants(tmp_path):
     html = _make_html(
         "Spacing Book",
@@ -1507,6 +1538,48 @@ def test_view_section_accepts_punctuation_spacing_variants(tmp_path):
     assert "section=BOOK ONE / CHAPTER I.The Beginning" in out
     assert "section_number=2" in out
     assert "CHAPTER I.The Beginning" in out
+    assert "First paragraph." in out
+
+
+def test_view_section_accepts_missing_closing_delimiters(tmp_path):
+    html = _make_html(
+        "Delimited Book",
+        """
+<p class="toc"><a href="#a" class="pginternal">PART II. SEXUAL SELECTION</a></p>
+<p class="toc"><a href="#b" class="pginternal">ORDER, DIPTERA (FLIES).</a></p>
+<h2><a id="a"></a>PART II. SEXUAL SELECTION</h2>
+<h3><a id="b"></a>ORDER, DIPTERA (FLIES).</h3>
+<p>First paragraph.</p>
+""",
+    )
+    db = Database(tmp_path / "delimited-view.db")
+    book = BookRecord(
+        id=24,
+        title="Delimited Book",
+        authors="Author, Test",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="2000-01-01",
+        type="Text",
+    )
+    db._store(book, chunk_html(html))
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(
+        db_path,
+        "view",
+        "24",
+        "--section",
+        "part ii. sexual selection / order, diptera (flies",
+        "--forward",
+        "1",
+    )
+    assert code == 0
+    assert "section=PART II. SEXUAL SELECTION / ORDER, DIPTERA (FLIES)." in out
+    assert "ORDER, DIPTERA (FLIES)." in out
     assert "First paragraph." in out
 
 
