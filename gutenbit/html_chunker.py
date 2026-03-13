@@ -1073,6 +1073,12 @@ def _refined_candidate_section(
                 candidate.body_anchor,
                 candidate.heading_rank,
             )
+        if (
+            _is_title_like_heading(toc_section.heading_text)
+            and candidate.heading_rank == toc_section.heading_rank
+            and _starts_with_enumerated_heading_prefix(candidate.heading_text)
+        ):
+            return candidate
         if candidate.heading_rank != toc_section.heading_rank + 1 and not (
             allow_tail_title_like and _TAIL_SECTION_HEADING_RE.match(candidate.heading_text)
         ):
