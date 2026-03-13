@@ -65,7 +65,7 @@ _STRUCTURAL_KEYWORD_ALIASES = {
     "scoena": "scene",
 }
 HTML_PARSER_BACKEND = "lxml"
-CHUNKER_VERSION = 27
+CHUNKER_VERSION = 28
 
 # Bare chapter-number headings: "CHAPTER I", "CHAPTER IV.", "BOOK 2" etc.
 # with no subtitle text — used to merge consecutive number + title headings.
