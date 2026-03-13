@@ -429,6 +429,21 @@ def test_middlemarch_keeps_the_finale_section():
     assert heading_texts[-2:] == ["FINALE", "THE END"]
 
 
+def test_descent_of_man_stops_monkey_note_before_inline_index():
+    headings = _headings(2300)
+    heading_texts = [heading.content for heading in headings]
+    monkey_paragraphs = [
+        paragraph.content
+        for paragraph in _paragraphs(2300)
+        if paragraph.div3 == "ON SEXUAL SELECTION IN RELATION TO MONKEYS"
+    ]
+
+    assert heading_texts[-1] == "ON SEXUAL SELECTION IN RELATION TO MONKEYS"
+    assert "THE END" not in heading_texts
+    assert monkey_paragraphs[0] == "Reprinted from NATURE, November 2, 1876, p. 18."
+    assert not any(text.startswith("INDEX.") for text in monkey_paragraphs)
+
+
 def test_jane_eyre_keeps_preface_and_note_before_chapter_one():
     heading_texts = [heading.content for heading in _headings(1260)]
 
