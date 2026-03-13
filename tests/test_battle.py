@@ -684,3 +684,17 @@ def test_scarlet_letter_keeps_custom_house_before_the_novel():
         "II. THE MARKET-PLACE",
     ]
     assert heading_texts[-1] == "XXIV. CONCLUSION"
+
+
+def test_turn_of_the_screw_keeps_all_roman_numeral_chapters_under_the_title():
+    headings = _headings(209)
+    heading_texts = [heading.content for heading in headings]
+    first_chapter = next(heading for heading in headings if heading.content == "I")
+    last_chapter = next(heading for heading in headings if heading.content == "XXIV")
+
+    assert heading_texts[:4] == ["THE TURN OF THE SCREW", "I", "II", "III"]
+    assert len(headings) == 25
+    assert first_chapter.div1 == "THE TURN OF THE SCREW"
+    assert first_chapter.div2 == "I"
+    assert last_chapter.div1 == "THE TURN OF THE SCREW"
+    assert last_chapter.div2 == "XXIV"
