@@ -208,7 +208,7 @@ section = db.chunks_by_div(1342, "Chapter 1")
 section = db.chunks_by_div(1342, "BOOK ONE/CHAPTER I", kinds=["text"], limit=10)
 ```
 
-`chunks_by_div` matches by prefix on the div hierarchy. Matching ignores trailing punctuation and is case-insensitive.
+`chunks_by_div` matches by prefix on the div hierarchy. Stored headings preserve source punctuation, while matching ignores trailing punctuation and is case-insensitive.
 
 ### ChunkRecord
 

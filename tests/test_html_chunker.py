@@ -79,6 +79,35 @@ def test_multiple_chapters():
     assert [h.content for h in headings] == ["CHAPTER I", "CHAPTER II", "CHAPTER III"]
 
 
+def test_structural_headings_preserve_terminal_punctuation():
+    html = _make_html("""
+    <p class="toc"><a href="#part2" class="pginternal">PART II. SEXUAL SELECTION</a></p>
+    <p class="toc"><a href="#ch10" class="pginternal">
+      CHAPTER X. SECONDARY SEXUAL CHARACTERS OF INSECTS
+    </a></p>
+    <p class="toc"><a href="#diptera" class="pginternal">ORDER, DIPTERA (FLIES).</a></p>
+    <p class="toc"><a href="#appendix" class="pginternal">CHAPTER XI. APPENDIX [II.]</a></p>
+    <h2><a id="part2"></a>PART II. SEXUAL SELECTION</h2>
+    <h3><a id="ch10"></a>CHAPTER X. SECONDARY SEXUAL CHARACTERS OF INSECTS</h3>
+    <h4><a id="diptera"></a>ORDER, DIPTERA (FLIES).</h4>
+    <p>Diptera paragraph.</p>
+    <h3><a id="appendix"></a>CHAPTER XI. APPENDIX [II.]</h3>
+    <p>Appendix paragraph.</p>
+    """)
+    headings = [chunk for chunk in chunk_html(html) if chunk.kind == "heading"]
+
+    diptera = next(heading for heading in headings if heading.content.startswith("ORDER, DIPTERA"))
+    appendix = next(heading for heading in headings if heading.content.startswith("CHAPTER XI"))
+
+    assert diptera.content == "ORDER, DIPTERA (FLIES)."
+    assert diptera.div1 == "PART II. SEXUAL SELECTION"
+    assert diptera.div2 == "CHAPTER X. SECONDARY SEXUAL CHARACTERS OF INSECTS"
+    assert diptera.div3 == "ORDER, DIPTERA (FLIES)."
+    assert appendix.content == "CHAPTER XI. APPENDIX [II.]"
+    assert appendix.div1 == "PART II. SEXUAL SELECTION"
+    assert appendix.div2 == "CHAPTER XI. APPENDIX [II.]"
+
+
 def test_positions_are_sequential():
     html = _make_html("""
     <p class="toc"><a href="#ch1" class="pginternal">CHAPTER I</a></p>
@@ -386,14 +415,14 @@ def test_scene_one_toc_link_pointing_to_act_anchor_emits_both_levels():
     assert [h.content for h in headings] == [
         "PLAY TITLE",
         "ACT I",
-        "Scene I. Hall",
-        "SCENE II. Garden",
+        "Scene I. Hall.",
+        "SCENE II. Garden.",
     ]
     assert headings[1].div1 == "ACT I"
     assert headings[2].div1 == "ACT I"
-    assert headings[2].div2 == "Scene I. Hall"
+    assert headings[2].div2 == "Scene I. Hall."
     assert paragraphs[0].div1 == "ACT I"
-    assert paragraphs[0].div2 == "Scene I. Hall"
+    assert paragraphs[0].div2 == "Scene I. Hall."
 
 
 def test_collection_titles_promote_to_top_level_when_repeated():
@@ -421,10 +450,10 @@ def test_collection_titles_promote_to_top_level_when_repeated():
     assert [h.content for h in headings] == [
         "PLAY ONE",
         "ACT I",
-        "Scene I. Hall",
+        "Scene I. Hall.",
         "PLAY TWO",
         "ACT I",
-        "Scene I. Garden",
+        "Scene I. Garden.",
         "POEM THREE",
     ]
     assert headings[0].div1 == "PLAY ONE"
@@ -432,7 +461,7 @@ def test_collection_titles_promote_to_top_level_when_repeated():
     assert headings[1].div2 == "ACT I"
     assert headings[2].div1 == "PLAY ONE"
     assert headings[2].div2 == "ACT I"
-    assert headings[2].div3 == "Scene I. Hall"
+    assert headings[2].div3 == "Scene I. Hall."
     assert headings[3].div1 == "PLAY TWO"
     assert headings[4].div1 == "PLAY TWO"
     assert headings[4].div2 == "ACT I"
@@ -565,7 +594,7 @@ def test_illustration_links_ignored():
     headings = [c for c in chunks if c.kind == "heading"]
 
     assert len(headings) == 1
-    assert headings[0].content == "STAVE ONE"
+    assert headings[0].content == "STAVE ONE."
 
 
 def test_page_number_links_ignored():
@@ -741,7 +770,7 @@ def test_heading_with_pagenum_span():
     chunks = chunk_html(html)
     headings = [c for c in chunks if c.kind == "heading"]
     assert len(headings) == 1
-    assert headings[0].content == "CHAPTER I"
+    assert headings[0].content == "CHAPTER I."
 
 
 def test_heading_from_img_alt():
@@ -753,7 +782,7 @@ def test_heading_from_img_alt():
     chunks = chunk_html(html)
     headings = [c for c in chunks if c.kind == "heading"]
     assert len(headings) == 1
-    assert headings[0].content == "CHAPTER I"
+    assert headings[0].content == "CHAPTER I."
 
 
 def test_heading_text_preferred_over_img_alt_caption():
@@ -867,6 +896,21 @@ def test_heading_scan_skips_notes_and_page_markers():
     assert headings == ["CHAPTER I"]
 
 
+def test_heading_scan_skips_punctuated_contents_heading():
+    html = _make_html("""
+    <h2>PREFACE.</h2>
+    <p>Preface paragraph.</p>
+    <h2>CONTENTS.</h2>
+    <p>Contents paragraph.</p>
+    <h2>CHAPTER I.</h2>
+    <p>Chapter paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert headings == ["PREFACE.", "CHAPTER I."]
+
+
 def test_heading_scan_skips_front_contents_cluster_and_merges_split_headings():
     html = _make_html("""
     <p>CONTENTS OF THE SECOND VOLUME</p>
@@ -884,11 +928,11 @@ def test_heading_scan_skips_front_contents_cluster_and_merges_split_headings():
 
     assert [h.content for h in headings] == [
         "BOOK III OF WORDS",
-        "CHAPTER I OF WORDS OR LANGUAGE IN GENERAL",
+        "CHAPTER I. OF WORDS OR LANGUAGE IN GENERAL",
     ]
     assert headings[0].div1 == "BOOK III OF WORDS"
     assert headings[1].div1 == "BOOK III OF WORDS"
-    assert headings[1].div2 == "CHAPTER I OF WORDS OR LANGUAGE IN GENERAL"
+    assert headings[1].div2 == "CHAPTER I. OF WORDS OR LANGUAGE IN GENERAL"
 
 
 def test_heading_scan_keeps_part_headings_separate_from_numbered_child_sections():
@@ -1008,7 +1052,7 @@ def test_heading_scan_strips_synopsis_from_book_heading():
 
     assert [h.content for h in headings] == [
         "BOOK IV OF KNOWLEDGE AND PROBABILITY",
-        "CHAPTER I",
+        "CHAPTER I.",
     ]
     assert paragraphs[0].div1 == "BOOK IV OF KNOWLEDGE AND PROBABILITY"
     assert paragraphs[0].content == "Book-level synopsis paragraph."
@@ -1332,17 +1376,17 @@ def test_paragraph_play_headings_split_act_and_scene_and_ignore_finis():
     headings = [c for c in chunks if c.kind == "heading"]
     paragraphs = [c for c in chunks if c.kind == "text"]
 
-    assert [h.content for h in headings] == ["Actus Primus", "Scoena Prima", "Scena Secunda"]
-    assert headings[0].div1 == "Actus Primus"
-    assert headings[1].div1 == "Actus Primus"
-    assert headings[1].div2 == "Scoena Prima"
-    assert headings[2].div1 == "Actus Primus"
-    assert headings[2].div2 == "Scena Secunda"
+    assert [h.content for h in headings] == ["Actus Primus.", "Scoena Prima.", "Scena Secunda."]
+    assert headings[0].div1 == "Actus Primus."
+    assert headings[1].div1 == "Actus Primus."
+    assert headings[1].div2 == "Scoena Prima."
+    assert headings[2].div1 == "Actus Primus."
+    assert headings[2].div2 == "Scena Secunda."
     assert all(h.content != "FINIS" for h in headings)
-    assert paragraphs[0].div1 == "Actus Primus"
-    assert paragraphs[0].div2 == "Scoena Prima"
-    assert paragraphs[1].div1 == "Actus Primus"
-    assert paragraphs[1].div2 == "Scena Secunda"
+    assert paragraphs[0].div1 == "Actus Primus."
+    assert paragraphs[0].div2 == "Scoena Prima."
+    assert paragraphs[1].div1 == "Actus Primus."
+    assert paragraphs[1].div2 == "Scena Secunda."
 
 
 def test_paragraph_play_headings_reset_scene_hierarchy_on_new_act():
@@ -1361,18 +1405,18 @@ def test_paragraph_play_headings_reset_scene_hierarchy_on_new_act():
     paragraphs = [c for c in chunks if c.kind == "text"]
 
     assert [h.content for h in headings] == [
-        "Actus Primus",
-        "Scoena Prima",
-        "Scena Secunda",
-        "Actus Secundus",
-        "Scena Prima",
+        "Actus Primus.",
+        "Scoena Prima.",
+        "Scena Secunda.",
+        "Actus Secundus.",
+        "Scena Prima.",
     ]
-    assert headings[3].div1 == "Actus Secundus"
+    assert headings[3].div1 == "Actus Secundus."
     assert headings[3].div2 == ""
-    assert headings[4].div1 == "Actus Secundus"
-    assert headings[4].div2 == "Scena Prima"
-    assert paragraphs[2].div1 == "Actus Secundus"
-    assert paragraphs[2].div2 == "Scena Prima"
+    assert headings[4].div1 == "Actus Secundus."
+    assert headings[4].div2 == "Scena Prima."
+    assert paragraphs[2].div1 == "Actus Secundus."
+    assert paragraphs[2].div2 == "Scena Prima."
 
 
 def test_paragraph_play_headings_do_not_extract_act_scene_from_prose():
@@ -1420,9 +1464,9 @@ def test_title_like_toc_sections_keep_trailing_book_headings_and_skip_letter_mar
     assert headings == [
         "THE ASSEMBLY OF FOWLS",
         "TROILUS AND CRESSIDA",
-        "THE FIRST BOOK",
-        "THE SECOND BOOK",
-        "CHAUCER'S A. B. C",
+        "THE FIRST BOOK.",
+        "THE SECOND BOOK.",
+        "CHAUCER'S A. B. C.",
         "A GOODLY BALLAD OF CHAUCER",
     ]
 
@@ -1446,10 +1490,10 @@ def test_heading_scan_skips_deep_rank_bare_numeral_subheads():
     headings = [c.content for c in chunks if c.kind == "heading"]
 
     assert headings == [
-        "PREFACE",
-        "FLORENCE AND DANTE",
-        "GIOTTO'S PORTRAIT OF DANTE",
-        "CANTO I",
+        "PREFACE.",
+        "FLORENCE AND DANTE.",
+        "GIOTTO'S PORTRAIT OF DANTE.",
+        "CANTO I.",
     ]
 
 
@@ -1608,10 +1652,10 @@ def test_heading_scan_starts_from_front_matter_before_shallower_chapters():
     headings = [c.content for c in chunks if c.kind == "heading"]
     paragraphs = [c for c in chunks if c.kind == "text"]
 
-    assert headings == ["ETYMOLOGY", "EXTRACTS", "CHAPTER I"]
-    assert paragraphs[0].div1 == "ETYMOLOGY"
-    assert paragraphs[1].div1 == "EXTRACTS"
-    assert paragraphs[2].div1 == "CHAPTER I"
+    assert headings == ["ETYMOLOGY.", "EXTRACTS.", "CHAPTER I."]
+    assert paragraphs[0].div1 == "ETYMOLOGY."
+    assert paragraphs[1].div1 == "EXTRACTS."
+    assert paragraphs[2].div1 == "CHAPTER I."
 
 
 def test_singular_note_heading_is_preserved_as_a_section():
