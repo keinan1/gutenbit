@@ -6,9 +6,10 @@ import re
 import shlex
 from pathlib import Path
 
+import click
 import pytest
 
-from gutenbit.cli import _build_parser
+from gutenbit.cli import _cli
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOC_PATHS = (
@@ -63,9 +64,19 @@ DOCUMENTED_COMMANDS = [
 
 @pytest.mark.parametrize("command", DOCUMENTED_COMMANDS)
 def test_documented_cli_commands_parse(command: str):
-    parser = _build_parser()
-    namespace = parser.parse_args(shlex.split(command.removeprefix("gutenbit ")))
-    assert namespace.command is not None
+    args = shlex.split(command.removeprefix("gutenbit "))
+    try:
+        ctx = _cli.make_context(
+            "gutenbit", list(args), allow_extra_args=True, allow_interspersed_args=False
+        )
+    except click.exceptions.UsageError as exc:
+        pytest.fail(f"Command failed to parse: {command!r} — {exc}")
+    # In Click 8.x, remaining tokens (subcommand + its args) are in protected_args;
+    # Click 9.0 merges them into args. Support both.
+    cmd_args = (ctx.protected_args if ctx.protected_args else ctx.args)
+    assert cmd_args, f"No subcommand found in: {command!r}"
+    cmd_name = cmd_args[0]
+    assert cmd_name in _cli.commands, f"Unknown subcommand {cmd_name!r} in: {command!r}"
 
 
 def test_mobile_header_hides_logo_and_restores_title():
