@@ -54,14 +54,10 @@ def test_version_flag_prints_non_empty_version():
     out = io.StringIO()
     err = io.StringIO()
 
-    with (
-        contextlib.redirect_stdout(out),
-        contextlib.redirect_stderr(err),
-        pytest.raises(SystemExit) as excinfo,
-    ):
-        cli_main(["--version"])
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli_main(["--version"])
 
-    assert excinfo.value.code == 0
+    assert code == 0
     assert err.getvalue() == ""
     rendered = out.getvalue().strip()
     assert rendered.startswith("gutenbit ")
@@ -72,14 +68,10 @@ def test_help_shows_project_local_default_db():
     out = io.StringIO()
     err = io.StringIO()
 
-    with (
-        contextlib.redirect_stdout(out),
-        contextlib.redirect_stderr(err),
-        pytest.raises(SystemExit) as excinfo,
-    ):
-        cli_main(["--help"])
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli_main(["--help"])
 
-    assert excinfo.value.code == 0
+    assert code == 0
     assert err.getvalue() == ""
     assert "~/.gutenbit/gutenbit.db" in out.getvalue()
 
@@ -88,14 +80,10 @@ def test_help_shows_pride_and_prejudice_workflow():
     out = io.StringIO()
     err = io.StringIO()
 
-    with (
-        contextlib.redirect_stdout(out),
-        contextlib.redirect_stderr(err),
-        pytest.raises(SystemExit) as excinfo,
-    ):
-        cli_main(["--help"])
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli_main(["--help"])
 
-    assert excinfo.value.code == 0
+    assert code == 0
     assert err.getvalue() == ""
     rendered = out.getvalue()
     assert 'gutenbit catalog --author "Austen, Jane"' in rendered
@@ -109,14 +97,10 @@ def test_help_uses_command_placeholder_instead_of_choice_braces():
     out = io.StringIO()
     err = io.StringIO()
 
-    with (
-        contextlib.redirect_stdout(out),
-        contextlib.redirect_stderr(err),
-        pytest.raises(SystemExit) as excinfo,
-    ):
-        cli_main(["--help"])
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli_main(["--help"])
 
-    assert excinfo.value.code == 0
+    assert code == 0
     assert err.getvalue() == ""
     rendered = out.getvalue()
     assert "COMMAND ..." in rendered
@@ -160,8 +144,7 @@ def test_delete_subcommand_is_rejected():
     code, _out, err = _run_cli("delete", "1")
 
     assert code == 2
-    assert "invalid choice: 'delete'" in err
-    assert "remove" in err
+    assert "No such command 'delete'" in err
 
 
 def test_books_creates_default_db_under_home_state_dir(tmp_path, monkeypatch):

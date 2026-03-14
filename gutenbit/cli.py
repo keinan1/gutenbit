@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import re
@@ -12,6 +11,8 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Any, TypedDict, cast
+
+import click
 
 from gutenbit.catalog import BookRecord, Catalog, CatalogFetchInfo
 from gutenbit.db import (
@@ -76,13 +77,69 @@ _SENTENCE_END_RE = re.compile(r'[.!?]["\')\]]*$')
 
 _DISPLAY_CACHE: tuple[int, int, CliDisplay] | None = None
 
+# ---------------------------------------------------------------------------
+# Click infrastructure
+# ---------------------------------------------------------------------------
 
-class _CliHelpFormatter(argparse.RawDescriptionHelpFormatter):
-    """Format help with slightly wider columns for cleaner CLI output."""
+_CONTEXT_SETTINGS: dict[str, Any] = {
+    "help_option_names": ["-h", "--help"],
+    "max_content_width": 100,
+}
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        kwargs.setdefault("max_help_position", 30)
-        super().__init__(*args, **kwargs)
+_DB_HELP = "SQLite database path (default: ~/.gutenbit/gutenbit.db)"
+_DB_OVERRIDE_HELP = "SQLite database path (works before or after the subcommand)"
+_VERBOSE_HELP = "enable debug logging"
+
+_EPILOG = """\b
+quick start:
+  1. gutenbit catalog --author "Austen, Jane"                   # find Pride and Prejudice
+  2. gutenbit add 1342                                          # download and store it
+  3. gutenbit toc 1342                                          # inspect numbered sections
+  4. gutenbit view 1342                                         # read the opening
+  5. gutenbit search "truth universally acknowledged" --book 1342 --phrase
+
+\b
+learn more:
+  gutenbit COMMAND --help    detailed help for one command
+
+\b
+gutenbit is an open-source project not affiliated with Project Gutenberg. It is for
+individual downloads, not bulk downloading. By default, all application data is
+stored at ~/.gutenbit."""
+
+
+class _GutenbitGroup(click.Group):
+    """Click Group with gutenbit-style help formatting."""
+
+    def format_usage(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        formatter.write_usage(ctx.command_path, "[OPTIONS] COMMAND ...")
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        commands = []
+        for name in self.list_commands(ctx):
+            cmd = self.get_command(ctx, name)
+            if cmd is None or getattr(cmd, "hidden", False):
+                continue
+            commands.append((name, cmd))
+        if commands:
+            limit = formatter.width - 6 - max(len(name) for name, _ in commands)
+            rows = [(name, cmd.get_short_help_str(limit)) for name, cmd in commands]
+            if rows:
+                with formatter.section("commands"):
+                    formatter.write_dl(rows)
+
+
+def _configure_logging(verbose: bool) -> None:
+    if verbose:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(levelname)s %(name)s: %(message)s",
+            stream=sys.stdout,
+        )
+    else:
+        logging.basicConfig(level=logging.WARNING, format="%(message)s", stream=sys.stdout)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def _display() -> CliDisplay:
@@ -139,16 +196,16 @@ def _catalog_status_message(fetch_info: CatalogFetchInfo | None, *, refresh: boo
     return f"Downloaded catalog from Project Gutenberg ({corpus})."
 
 
-def _load_catalog(args: argparse.Namespace, *, display: CliDisplay, as_json: bool) -> Catalog:
+def _load_catalog(refresh: bool = False, *, display: CliDisplay, as_json: bool) -> Catalog:
     catalog = Catalog.fetch(
         cache_dir=_catalog_cache_dir(),
-        refresh=getattr(args, "refresh", False),
+        refresh=refresh,
     )
     if not as_json:
         display.status(
             _catalog_status_message(
                 catalog.fetch_info,
-                refresh=getattr(args, "refresh", False),
+                refresh=refresh,
             )
         )
     return catalog
@@ -733,33 +790,6 @@ def _print_block_header(title: str) -> None:
     print(f"\n[{title.upper()}]")
 
 
-def _add_global_args(parser: argparse.ArgumentParser) -> None:
-    """Add --db and -v to a subparser so they work after the subcommand too."""
-    parser.add_argument(
-        "--db",
-        default=argparse.SUPPRESS,
-        help="SQLite database path (works before or after the subcommand)",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="enable debug logging",
-    )
-
-
-def _add_catalog_cache_args(
-    parser: argparse.ArgumentParser,
-    *,
-    help_text: str = "ignore the catalog cache and redownload it now",
-) -> None:
-    parser.add_argument(
-        "--refresh",
-        action="store_true",
-        help=help_text,
-    )
-
 
 def _opening_rows(db: Database, book_id: int, n: int) -> list[ChunkRecord]:
     """Return a default reading window, skipping common front-matter headings.
@@ -855,47 +885,53 @@ def _toc_expand_depth(expand: str) -> int:
     return 4 if expand == "all" else int(expand)
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    fmt = _CliHelpFormatter
-    p = argparse.ArgumentParser(
-        prog="gutenbit",
-        formatter_class=fmt,
-        description=(
-            "A tool for fast local search across public-domain literary works. "
-            "Find, browse and search books from your terminal."
-        ),
-        epilog="""\
-quick start:
-  1. gutenbit catalog --author "Austen, Jane"                   # find Pride and Prejudice
-  2. gutenbit add 1342                                          # download and store it
-  3. gutenbit toc 1342                                          # inspect numbered sections
-  4. gutenbit view 1342                                         # read the opening
-  5. gutenbit search "truth universally acknowledged" --book 1342 --phrase
+# ---------------------------------------------------------------------------
+# CLI group and subcommand definitions
+# ---------------------------------------------------------------------------
 
-learn more:
-  gutenbit COMMAND --help    detailed help for one command
 
-gutenbit is an open-source project not affiliated with Project Gutenberg. It is for
-individual downloads, not bulk downloading. By default, all application data is
-stored at ~/.gutenbit.""",
-    )
-    p._optionals.title = "global options"
-    p.add_argument(
-        "--db",
-        default=DEFAULT_DB,
-        help="SQLite database path (default: ~/.gutenbit/gutenbit.db)",
-    )
-    p.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
-    p.add_argument("-v", "--verbose", action="store_true", help="enable debug logging")
-    sub = p.add_subparsers(dest="command", title="commands", metavar="COMMAND")
+@click.group(
+    cls=_GutenbitGroup,
+    invoke_without_command=True,
+    context_settings=_CONTEXT_SETTINGS,
+    epilog=_EPILOG,
+)
+@click.option("--db", default=DEFAULT_DB, metavar="DB", help=_DB_HELP)
+@click.version_option(_package_version(), prog_name="gutenbit", message="%(prog)s %(version)s")
+@click.option("-v", "--verbose", is_flag=True, help=_VERBOSE_HELP)
+@click.pass_context
+def _cli(ctx: click.Context, db: str, verbose: bool) -> None:
+    """A tool for fast local search across public-domain literary works.
+    Find, browse and search books from your terminal."""
+    ctx.ensure_object(dict)
+    ctx.obj["db"] = db
+    ctx.obj["verbose"] = verbose
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
-    # --- catalog ---
-    cat = sub.add_parser(
-        "catalog",
-        formatter_class=fmt,
-        help="search the Project Gutenberg catalog",
-        description="Search the Project Gutenberg catalog (cached for 2 hours by default).",
-        epilog="""\
+
+def _resolve_db(ctx: click.Context, db: str | None) -> str:
+    """Return effective db path: subcommand override takes precedence over group default."""
+    if db is not None:
+        return db
+    return ctx.obj.get("db", DEFAULT_DB)
+
+
+def _resolve_verbose(ctx: click.Context, verbose: bool) -> bool:
+    """Return effective verbose flag: either source activates it."""
+    return verbose or ctx.obj.get("verbose", False)
+
+
+
+# -------------------------------------------------------------------
+# Subcommand handlers
+# -------------------------------------------------------------------
+
+
+@_cli.command(
+    "catalog",
+    help="search the Project Gutenberg catalog",
+    epilog="""
 examples:
   gutenbit catalog --author Tolstoy
   gutenbit catalog --title "War and Peace"
@@ -904,368 +940,66 @@ examples:
 
 output columns:  ID  AUTHORS  TITLE
 all filters use case-insensitive substring matching (AND logic).""",
-    )
-    cat.add_argument("--author", default="", help="filter by author (substring match)")
-    cat.add_argument("--title", default="", help="filter by title (substring match)")
-    cat.add_argument("--language", default="", help="filter by language code, e.g. 'en'")
-    cat.add_argument("--subject", default="", help="filter by subject (substring match)")
-    cat.add_argument("--limit", type=int, default=20, help="max results (default: 20)")
-    cat.add_argument("--json", action="store_true", help="output as JSON")
-    _add_catalog_cache_args(cat)
-    _add_global_args(cat)
-
-    # --- add ---
-    add = sub.add_parser(
-        "add",
-        formatter_class=fmt,
-        help="download and store books by PG id",
-        description=(
-            "Download books from Project Gutenberg by ID, parse HTML into chunks, "
-            "and store everything in the SQLite database. Already-downloaded books "
-            "are skipped unless --refresh forces a re-download and reprocessing."
-        ),
-        epilog="""\
-examples:
-  gutenbit add 2600                     # War and Peace
-  gutenbit add 46 730 967               # multiple books
-  gutenbit add 2600 --refresh           # refresh the catalog and reprocess the book
-  gutenbit add 2600 --delay 2.0         # polite crawling""",
-    )
-    add.add_argument(
-        "book_ids",
-        nargs="+",
-        metavar="BOOK_ID",
-        type=int,
-        help="Project Gutenberg book IDs",
-    )
-    add.add_argument(
-        "--delay",
-        type=float,
-        default=DEFAULT_DOWNLOAD_DELAY,
-        help="seconds between downloads (default: %(default)s)",
-    )
-    add.add_argument("--json", action="store_true", help="output as JSON")
-    _add_catalog_cache_args(
-        add,
-        help_text=(
-            "ignore the catalog cache, redownload it now, and reprocess matching stored books"
-        ),
-    )
-    _add_global_args(add)
-
-    # --- remove ---
-    de = sub.add_parser(
-        "remove",
-        formatter_class=fmt,
-        help="remove stored books by PG id",
-        description=(
-            "Remove previously added books from the SQLite database, including "
-            "their reconstructed text and all chunks."
-        ),
-        epilog="""\
-examples:
-  gutenbit remove 46
-  gutenbit remove 46 730 967
-  gutenbit remove 2600 --db my.db
-
-if a book ID is not present, a warning is printed and exit code is 1.""",
-    )
-    de.add_argument(
-        "book_ids",
-        nargs="+",
-        metavar="BOOK_ID",
-        type=int,
-        help="Project Gutenberg book IDs",
-    )
-    de.add_argument("--json", action="store_true", help="output as JSON")
-    _add_global_args(de)
-
-    # --- books ---
-    bk = sub.add_parser(
-        "books",
-        formatter_class=fmt,
-        help="list or update books stored in the database",
-        description=(
-            "List all books that have been added to the database. With --update, "
-            "reprocess stored books whose parser version is stale."
-        ),
-        epilog="""\
-examples:
-  gutenbit books
-  gutenbit books --json
-  gutenbit books --update
-  gutenbit books --update --force
-  gutenbit books --db my.db
-
-output columns:  ID  AUTHORS  TITLE""",
-    )
-    bk.add_argument(
-        "--update",
-        action="store_true",
-        help="reprocess stored books whose parser version is stale",
-    )
-    bk.add_argument(
-        "--delay",
-        type=float,
-        default=DEFAULT_DOWNLOAD_DELAY,
-        help="seconds between downloads in update mode (default: %(default)s)",
-    )
-    bk.add_argument(
-        "--force",
-        action="store_true",
-        help="reprocess all stored books in update mode, even if already current",
-    )
-    bk.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="show which stored books would be updated without downloading",
-    )
-    bk.add_argument("--json", action="store_true", help="output as JSON")
-    _add_global_args(bk)
-
-    # --- search ---
-    se = sub.add_parser(
-        "search",
-        formatter_class=fmt,
-        help="full-text search across stored books",
-        description=(
-            "Full-text search using SQLite FTS5 with BM25 ranking. "
-            "Plain-text queries are auto-escaped so apostrophes, hyphens, "
-            "and other punctuation are ok. Use --raw for advanced FTS5 "
-            "syntax (AND/OR/NOT, prefix*, NEAR, parentheses)."
-        ),
-        epilog="""\
-examples:
-  gutenbit search "bennet"                                  # simple search
-  gutenbit search "don't stop"                              # punctuation is ok
-  gutenbit search "half-hour"                               # hyphens just work
-  gutenbit search "truth universally acknowledged" --phrase # exact phrase match
-  gutenbit search "ghost OR spirit" --raw                   # FTS5 boolean query
-  gutenbit search "(ghost OR spirit) AND NOT haunt*" --raw  # advanced FTS5
-  gutenbit search "bennet" --book 1342                      # restrict to one book
-  gutenbit search "truth universally acknowledged" --book 1342 --section 1 --phrase
-  gutenbit search "chapter" --book 1342 --kind heading      # search headings only
-  gutenbit search "bennet" --book 1342 --order first        # reading order (earliest)
-  gutenbit search "bennet" --book 1342 --order last         # reverse reading order
-  gutenbit search "bennet" --book 1342 --radius 1           # show surrounding passage
-  gutenbit search "bennet" --book 1342 --limit 3            # limit the result set
-  gutenbit search "bennet" --book 1342 --count              # just show match count
-  gutenbit search "bennet" --book 1342 --json               # JSON output
-
-query modes:
-  (default)  plain text — punctuation is auto-escaped, words are AND'd
-  --phrase   exact phrase — word order and adjacency must match exactly
-  --raw      FTS5 syntax — AND, OR, NOT, NEAR(), prefix*, "phrases", (groups)
-
-result order:
-  rank    BM25 rank, then book, then position (default)
-  first   book ascending, then position ascending
-  last    book descending, then position descending
-
-tip: use 'gutenbit toc <id>' first to see a book's structure, then
-     narrow searches with --book and --section. Search uses text chunks
-     by default; use --kind heading or --kind all when needed.""",
-    )
-    se.add_argument(
-        "query",
-        metavar="QUERY",
-        help="search query (plain text by default; see --raw, --phrase)",
-    )
-    query_group = se.add_mutually_exclusive_group()
-    query_group.add_argument(
-        "--phrase",
-        action="store_true",
-        help="treat query as an exact phrase (word order must match)",
-    )
-    query_group.add_argument(
-        "--raw",
-        action="store_true",
-        help="pass query directly to FTS5 (AND/OR/NOT, prefix*, NEAR, groups)",
-    )
-    se.add_argument(
-        "--order",
-        choices=["rank", "first", "last"],
-        default="rank",
-        metavar="ORDER",
-        help=(
-            "search result order: rank (BM25); "
-            "first (book asc + position asc); "
-            "last (book desc + position desc)"
-        ),
-    )
-    se.add_argument("--author", help="filter results by author (substring match)")
-    se.add_argument("--title", help="filter results by title (substring match)")
-    se.add_argument("--book", type=int, help="restrict to a single book by PG ID")
-    se.add_argument(
-        "--kind",
-        choices=["text", "heading", "all"],
-        default="text",
-        metavar="KIND",
-        help="chunk kind to search (default: %(default)s)",
-    )
-    se.add_argument(
-        "--section",
-        help=(
-            "restrict to a section by path prefix (e.g. 'STAVE ONE') or section number from 'toc'"
-        ),
-    )
-    se.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="max results (default: 10)",
-    )
-    se.add_argument(
-        "--radius",
-        type=int,
-        default=None,
-        help="surrounding passage on each side of each hit, in reading order",
-    )
-    se.add_argument(
-        "--count",
-        action="store_true",
-        help="just print the number of matches",
-    )
-    se.add_argument("--json", action="store_true", help="output results as JSON")
-    _add_global_args(se)
-
-    # --- toc ---
-    tc = sub.add_parser(
-        "toc",
-        formatter_class=fmt,
-        help="show structural table of contents for a book",
-        description=(
-            "Show a compact structural summary of one stored book, including "
-            "section numbering for easy section selection in `view`. "
-            "Use --expand to control how many heading levels the table shows."
-        ),
-        epilog="""\
-examples:
-  gutenbit toc 2600
-  gutenbit toc 100 --expand all
-  gutenbit toc 2600 --json
-
-if the book is missing, `toc` adds it automatically before rendering.
-
-section numbers in this output can be passed to:
-  gutenbit view 2600 --section <NUMBER>""",
-    )
-    tc.add_argument("book", metavar="BOOK_ID", type=int, help="Project Gutenberg book ID")
-    tc.add_argument(
-        "--expand",
-        choices=["1", "2", "3", "4", "all"],
-        default=DEFAULT_TOC_EXPAND,
-        metavar="DEPTH",
-        help="show heading levels up to this depth (default: 2; use 'all' for every level)",
-    )
-    tc.add_argument("--json", action="store_true", help="output as JSON")
-    _add_global_args(tc)
-
-    # --- view ---
-    vw = sub.add_parser(
-        "view",
-        formatter_class=fmt,
-        help="read stored book text, or focused parts of it",
-        description=(
-            "Read from the first structural section by default, or focus from an exact position "
-            "or section selector. Section selectors accept path text or a section "
-            "number from `gutenbit toc <book>`. Use --forward for forward reading, "
-            "--radius for surrounding passage windows, or --all for a full book or selected "
-            "section subtree."
-        ),
-        epilog="""\
-examples:
-  gutenbit toc 1342                                  # inspect structure first
-  gutenbit view 1342                                 # first structural section + quick actions
-  gutenbit view 1342 --all                           # full reconstructed text
-  gutenbit view 1342 --section 1                     # first passage in section 1
-  gutenbit view 1342 --section 1 --all               # full section, including nested subsections
-  gutenbit view 1342 --section 1 --forward 5         # first 5 passages in section 1
-  gutenbit view 1342 --section 1 --radius 1          # surrounding passage around the section start
-  gutenbit view 1342 --position 1                    # passage at position 1
-  gutenbit view 1342 --position 1 --forward 5        # continue reading from position
-  gutenbit view 1342 --position 1 --radius 1         # surrounding passage around position
-  gutenbit view 1342 --section "Chapter 1" --forward 5 --json
-
-selectors (choose at most one):
-  --position <n> | --section <SECTION_SELECTOR>
-""",
-    )
-    vw.add_argument("book", metavar="BOOK_ID", type=int, help="Project Gutenberg book ID")
-    vw.add_argument("--position", type=int, help="select the passage at this exact position")
-    vw.add_argument(
-        "--section",
-        help=(
-            "read from a section selector: path prefix "
-            '(e.g. PART ONE/CHAPTER I) or section number from `toc` (e.g. "3")'
-        ),
-    )
-    vw.add_argument(
-        "--all",
-        action="store_true",
-        help=(
-            "read the full selected scope "
-            "(whole book or selected section, including nested subsections)"
-        ),
-    )
-    vw.add_argument(
-        "--forward",
-        type=int,
-        default=None,
-        help="passages to read forward (default: opening=3, section/position=1)",
-    )
-    vw.add_argument(
-        "--radius",
-        type=int,
-        default=None,
-        help="surrounding passage on each side of the selected passage",
-    )
-    vw.add_argument(
-        "--json",
-        action="store_true",
-        help="output as JSON",
-    )
-    _add_global_args(vw)
-
-    return p
-
-
-# -------------------------------------------------------------------
-# Subcommand handlers
-# -------------------------------------------------------------------
-
-
-def _cmd_catalog(args: argparse.Namespace) -> int:
-    as_json = getattr(args, "json", False)
+)
+@click.option("--author", default="", help="filter by author (substring match)")
+@click.option("--title", default="", help="filter by title (substring match)")
+@click.option("--language", default="", help="filter by language code, e.g. 'en'")
+@click.option("--subject", default="", help="filter by subject (substring match)")
+@click.option("--limit", type=int, default=20, help="max results (default: 20)")
+@click.option("--json", "json_output", is_flag=True, help="output as JSON")
+@click.option(
+    "--refresh",
+    is_flag=True,
+    help="ignore the catalog cache and redownload it now",
+)
+@click.option("--db", default=None, metavar="DB", help=_DB_OVERRIDE_HELP)
+@click.option("-v", "--verbose", is_flag=True, default=False, help=_VERBOSE_HELP)
+@click.pass_context
+def _cmd_catalog(
+    ctx: click.Context,
+    author: str,
+    title: str,
+    language: str,
+    subject: str,
+    limit: int,
+    json_output: bool,
+    refresh: bool,
+    db: str | None,
+    verbose: bool,
+) -> int:
+    effective_db = _resolve_db(ctx, db)
+    if _resolve_verbose(ctx, verbose):
+        _configure_logging(True)
+    as_json = json_output
     display = _display()
-    if args.limit <= 0:
+    if limit <= 0:
         return _command_error("catalog", "--limit must be > 0.", as_json=as_json)
 
-    catalog = _load_catalog(args, display=display, as_json=as_json)
+    catalog = _load_catalog(refresh, display=display, as_json=as_json)
     results = catalog.search(
-        author=args.author,
-        title=args.title,
-        language=args.language,
-        subject=args.subject,
+        author=author,
+        title=title,
+        language=language,
+        subject=subject,
     )
 
-    shown = results[: args.limit]
+    shown = results[:limit]
     if as_json:
         data = {
             "filters": {
-                "author": args.author,
-                "title": args.title,
-                "language": args.language,
-                "subject": args.subject,
+                "author": author,
+                "title": title,
+                "language": language,
+                "subject": subject,
             },
-            "limit": args.limit,
+            "limit": limit,
             "catalog_source": catalog.fetch_info.source if catalog.fetch_info else "unknown",
             "catalog_cache_path": (
                 str(catalog.fetch_info.cache_path) if catalog.fetch_info else ""
             ),
             "total_matches": len(results),
             "shown": len(shown),
-            "items": [_book_payload(book) for book in shown],
+            "items": [_book_payload(rec) for rec in shown],
         }
         _print_json_envelope("catalog", ok=True, data=data)
         return 0
@@ -1396,13 +1130,53 @@ def _process_books_for_ingest(
     return statuses, errors
 
 
-def _cmd_add(args: argparse.Namespace) -> int:
-    as_json = getattr(args, "json", False)
+@_cli.command(
+    "add",
+    help="download and store books by PG id",
+    epilog="""
+examples:
+  gutenbit add 2600                     # War and Peace
+  gutenbit add 46 730 967               # multiple books
+  gutenbit add 2600 --refresh           # refresh the catalog and reprocess the book
+  gutenbit add 2600 --delay 2.0         # polite crawling""",
+)
+@click.argument("book_ids", nargs=-1, type=int, metavar="BOOK_ID")
+@click.option(
+    "--delay",
+    type=float,
+    default=DEFAULT_DOWNLOAD_DELAY,
+    help="seconds between downloads (default: %(default)s)",
+)
+@click.option("--json", "json_output", is_flag=True, help="output as JSON")
+@click.option(
+    "--refresh",
+    is_flag=True,
+    help="ignore the catalog cache, redownload it now, and reprocess matching stored books",
+)
+@click.option("--db", default=None, metavar="DB", help=_DB_OVERRIDE_HELP)
+@click.option("-v", "--verbose", is_flag=True, default=False, help=_VERBOSE_HELP)
+@click.pass_context
+def _cmd_add(
+    ctx: click.Context,
+    book_ids: tuple[int, ...],
+    delay: float,
+    json_output: bool,
+    refresh: bool,
+    db: str | None,
+    verbose: bool,
+) -> int:
+    effective_db = _resolve_db(ctx, db)
+    if _resolve_verbose(ctx, verbose):
+        _configure_logging(True)
+    as_json = json_output
     display = _display()
-    if args.delay < 0:
+    if delay < 0:
         return _command_error("add", "--delay must be >= 0.", as_json=as_json)
 
-    invalid_ids = [bid for bid in args.book_ids if bid <= 0]
+    if not book_ids:
+        raise click.UsageError("At least one BOOK_ID is required.")
+
+    invalid_ids = [bid for bid in book_ids if bid <= 0]
     if invalid_ids:
         return _command_error(
             "add",
@@ -1411,11 +1185,11 @@ def _cmd_add(args: argparse.Namespace) -> int:
             data={"invalid_ids": invalid_ids},
         )
 
-    catalog = _load_catalog(args, display=display, as_json=as_json)
+    catalog = _load_catalog(refresh, display=display, as_json=as_json)
     selected_by_id: dict[int, Any] = {}
     request_results: list[dict[str, Any]] = []
     warnings: list[str] = []
-    for requested_id in args.book_ids:
+    for requested_id in book_ids:
         rec = catalog.get(requested_id)
         if rec is None:
             warning = (
@@ -1459,12 +1233,12 @@ def _cmd_add(args: argparse.Namespace) -> int:
 
     if not books:
         data = {
-            "db": str(_resolved_cli_path(args.db)),
+            "db": str(_resolved_cli_path(effective_db)),
             "catalog_source": catalog.fetch_info.source if catalog.fetch_info else "unknown",
             "catalog_cache_path": (
                 str(catalog.fetch_info.cache_path) if catalog.fetch_info else ""
             ),
-            "requested_ids": args.book_ids,
+            "requested_ids": list(book_ids),
             "results": request_results,
         }
         return _command_error(
@@ -1475,15 +1249,15 @@ def _cmd_add(args: argparse.Namespace) -> int:
             warnings=warnings,
         )
 
-    with Database(args.db) as db:
+    with Database(effective_db) as db:
         canonical_statuses, errors = _process_books_for_ingest(
             db,
             books,
-            delay=args.delay,
+            delay=delay,
             as_json=as_json,
             display=display,
             failure_action="add",
-            force=args.refresh,
+            force=refresh,
         )
 
     if as_json:
@@ -1506,16 +1280,16 @@ def _cmd_add(args: argparse.Namespace) -> int:
             result_rows.append(result)
 
         data = {
-            "db": str(_resolved_cli_path(args.db)),
+            "db": str(_resolved_cli_path(effective_db)),
             "catalog_source": catalog.fetch_info.source if catalog.fetch_info else "unknown",
             "catalog_cache_path": (
                 str(catalog.fetch_info.cache_path) if catalog.fetch_info else ""
             ),
-            "delay_seconds": args.delay,
-            "requested_ids": args.book_ids,
+            "delay_seconds": delay,
+            "requested_ids": list(book_ids),
             "unique_canonical_ids": sorted(selected_by_id.keys()),
             "counts": {
-                "requested": len(args.book_ids),
+                "requested": len(book_ids),
                 "canonical": len(books),
             },
             "status_totals": status_totals,
@@ -1531,47 +1305,93 @@ def _cmd_add(args: argparse.Namespace) -> int:
 
     if errors:
         display.error(
-            f"Completed with {len(errors)} failure(s). Database: {_display_cli_path(args.db)}"
+            f"Completed with {len(errors)} failure(s). Database: {_display_cli_path(effective_db)}"
         )
         return 1
-    display.success(f"Done. Database: {_display_cli_path(args.db)}")
+    display.success(f"Done. Database: {_display_cli_path(effective_db)}")
     return 0
 
 
-def _cmd_books(args: argparse.Namespace) -> int:
-    as_json = getattr(args, "json", False)
+@_cli.command(
+    "books",
+    help="list or update books stored in the database",
+    epilog="""
+examples:
+  gutenbit books
+  gutenbit books --json
+  gutenbit books --update
+  gutenbit books --update --force
+  gutenbit books --db my.db
+
+output columns:  ID  AUTHORS  TITLE""",
+)
+@click.option("--update", is_flag=True, help="reprocess stored books whose parser version is stale")
+@click.option(
+    "--delay",
+    type=float,
+    default=DEFAULT_DOWNLOAD_DELAY,
+    help="seconds between downloads in update mode (default: %(default)s)",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="reprocess all stored books in update mode, even if already current",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="show which stored books would be updated without downloading",
+)
+@click.option("--json", "json_output", is_flag=True, help="output as JSON")
+@click.option("--db", default=None, metavar="DB", help=_DB_OVERRIDE_HELP)
+@click.option("-v", "--verbose", is_flag=True, default=False, help=_VERBOSE_HELP)
+@click.pass_context
+def _cmd_books(
+    ctx: click.Context,
+    update: bool,
+    delay: float,
+    force: bool,
+    dry_run: bool,
+    json_output: bool,
+    db: str | None,
+    verbose: bool,
+) -> int:
+    effective_db = _resolve_db(ctx, db)
+    if _resolve_verbose(ctx, verbose):
+        _configure_logging(True)
+    as_json = json_output
     display = _display()
-    if not args.update:
-        if args.delay != DEFAULT_DOWNLOAD_DELAY:
+    if not update:
+        if delay != DEFAULT_DOWNLOAD_DELAY:
             return _command_error(
                 "books",
                 "--delay can only be used with --update.",
                 as_json=as_json,
             )
-        if args.force:
+        if force:
             return _command_error(
                 "books",
                 "--force can only be used with --update.",
                 as_json=as_json,
             )
-        if args.dry_run:
+        if dry_run:
             return _command_error(
                 "books",
                 "--dry-run can only be used with --update.",
                 as_json=as_json,
             )
-    elif args.delay < 0:
+    elif delay < 0:
         return _command_error("books", "--delay must be >= 0.", as_json=as_json)
 
-    with Database(args.db) as db:
+    with Database(effective_db) as db:
         books = db.books()
-        if args.update:
-            db_path = str(_resolved_cli_path(args.db))
-            db_display_path = _display_cli_path(args.db)
+        if update:
+            db_path = str(_resolved_cli_path(effective_db))
+            db_display_path = _display_cli_path(effective_db)
             stored_count = len(books)
-            selected_books = books if args.force else db.stale_books()
+            selected_books = books if force else db.stale_books()
             selected_count = len(selected_books)
-            skipped_current = 0 if args.force else stored_count - selected_count
+            skipped_current = 0 if force else stored_count - selected_count
 
             if not books:
                 if as_json:
@@ -1581,9 +1401,9 @@ def _cmd_books(args: argparse.Namespace) -> int:
                         data={
                             "action": "update",
                             "db": db_path,
-                            "delay_seconds": args.delay,
-                            "force": args.force,
-                            "dry_run": args.dry_run,
+                            "delay_seconds": delay,
+                            "force": force,
+                            "dry_run": dry_run,
                             "counts": {
                                 "stored": 0,
                                 "selected": 0,
@@ -1598,7 +1418,7 @@ def _cmd_books(args: argparse.Namespace) -> int:
                     display.status("No books stored yet. Use 'gutenbit add <id> ...' to add some.")
                 return 0
 
-            if args.dry_run:
+            if dry_run:
                 results = [
                     {
                         "book_id": book.id,
@@ -1614,8 +1434,8 @@ def _cmd_books(args: argparse.Namespace) -> int:
                         data={
                             "action": "update",
                             "db": db_path,
-                            "delay_seconds": args.delay,
-                            "force": args.force,
+                            "delay_seconds": delay,
+                            "force": force,
                             "dry_run": True,
                             "counts": {
                                 "stored": stored_count,
@@ -1649,8 +1469,8 @@ def _cmd_books(args: argparse.Namespace) -> int:
                         data={
                             "action": "update",
                             "db": db_path,
-                            "delay_seconds": args.delay,
-                            "force": args.force,
+                            "delay_seconds": delay,
+                            "force": force,
                             "dry_run": False,
                             "counts": {
                                 "stored": stored_count,
@@ -1676,11 +1496,11 @@ def _cmd_books(args: argparse.Namespace) -> int:
             statuses, errors = _process_books_for_ingest(
                 db,
                 selected_books,
-                delay=args.delay,
+                delay=delay,
                 as_json=as_json,
                 display=display,
                 failure_action="update",
-                force=args.force,
+                force=force,
                 show_skipped_current=False,
             )
             updated_count = sum(
@@ -1703,8 +1523,8 @@ def _cmd_books(args: argparse.Namespace) -> int:
                     data={
                         "action": "update",
                         "db": db_path,
-                        "delay_seconds": args.delay,
-                        "force": args.force,
+                        "delay_seconds": delay,
+                        "force": force,
                         "dry_run": False,
                         "counts": {
                             "stored": stored_count,
@@ -1752,19 +1572,46 @@ def _cmd_books(args: argparse.Namespace) -> int:
             },
         )
         return 0
-    display.books(books, db_path=_display_cli_path(args.db))
+    display.books(books, db_path=_display_cli_path(effective_db))
     return 0
 
 
-def _cmd_remove(args: argparse.Namespace) -> int:
-    as_json = getattr(args, "json", False)
+@_cli.command(
+    "remove",
+    help="remove stored books by PG id",
+    epilog="""
+examples:
+  gutenbit remove 46
+  gutenbit remove 46 730 967
+  gutenbit remove 2600 --db my.db
+
+if a book ID is not present, a warning is printed and exit code is 1.""",
+)
+@click.argument("book_ids", nargs=-1, type=int, metavar="BOOK_ID")
+@click.option("--json", "json_output", is_flag=True, help="output as JSON")
+@click.option("--db", default=None, metavar="DB", help=_DB_OVERRIDE_HELP)
+@click.option("-v", "--verbose", is_flag=True, default=False, help=_VERBOSE_HELP)
+@click.pass_context
+def _cmd_remove(
+    ctx: click.Context,
+    book_ids: tuple[int, ...],
+    json_output: bool,
+    db: str | None,
+    verbose: bool,
+) -> int:
+    effective_db = _resolve_db(ctx, db)
+    if _resolve_verbose(ctx, verbose):
+        _configure_logging(True)
+    as_json = json_output
     display = _display()
+    if not book_ids:
+        raise click.UsageError("At least one BOOK_ID is required.")
     any_missing = False
     removed_count = 0
     results: list[dict[str, Any]] = []
     errors: list[str] = []
-    with Database(args.db) as db:
-        for book_id in args.book_ids:
+    with Database(effective_db) as db:
+        for book_id in book_ids:
             removed = db.remove_book(book_id)
             if not removed:
                 message = f"No book found for id {book_id}."
@@ -1779,16 +1626,16 @@ def _cmd_remove(args: argparse.Namespace) -> int:
                 if not as_json:
                     display.success(
                         f"Removed {_book_id_ref(book_id, capitalize=False)} "
-                        f"from {_display_cli_path(args.db)}."
+                        f"from {_display_cli_path(effective_db)}."
                     )
     if as_json:
         _print_json_envelope(
             "remove",
             ok=not any_missing,
             data={
-                "db": str(_resolved_cli_path(args.db)),
+                "db": str(_resolved_cli_path(effective_db)),
                 "removed_count": removed_count,
-                "missing_count": len(args.book_ids) - removed_count,
+                "missing_count": len(book_ids) - removed_count,
                 "results": results,
             },
             errors=errors,
@@ -1796,53 +1643,147 @@ def _cmd_remove(args: argparse.Namespace) -> int:
     return 1 if any_missing else 0
 
 
-def _cmd_search(args: argparse.Namespace) -> int:
-    as_json = getattr(args, "json", False)
+@_cli.command(
+    "search",
+    help="full-text search across stored books",
+    epilog="""
+examples:
+  gutenbit search "bennet"                                  # simple search
+  gutenbit search "don't stop"                              # punctuation is ok
+  gutenbit search "half-hour"                               # hyphens just work
+  gutenbit search "truth universally acknowledged" --phrase # exact phrase match
+  gutenbit search "ghost OR spirit" --raw                   # FTS5 boolean query
+  gutenbit search "(ghost OR spirit) AND NOT haunt*" --raw  # advanced FTS5
+  gutenbit search "bennet" --book 1342                      # restrict to one book
+  gutenbit search "truth universally acknowledged" --book 1342 --section 1 --phrase
+  gutenbit search "chapter" --book 1342 --kind heading      # search headings only
+  gutenbit search "bennet" --book 1342 --order first        # reading order (earliest)
+  gutenbit search "bennet" --book 1342 --order last         # reverse reading order
+  gutenbit search "bennet" --book 1342 --radius 1           # show surrounding passage
+  gutenbit search "bennet" --book 1342 --limit 3            # limit the result set
+  gutenbit search "bennet" --book 1342 --count              # just show match count
+  gutenbit search "bennet" --book 1342 --json               # JSON output
+
+
+query modes:
+  (default)  plain text — punctuation is auto-escaped, words are AND'd
+  --phrase   exact phrase — word order and adjacency must match exactly
+  --raw      FTS5 syntax — AND, OR, NOT, NEAR(), prefix*, "phrases", (groups)
+
+
+result order:
+  rank    BM25 rank, then book, then position (default)
+  first   book ascending, then position ascending
+  last    book descending, then position descending
+
+
+tip: use 'gutenbit toc <id>' first to see a book's structure, then
+     narrow searches with --book and --section. Search uses text chunks
+     by default; use --kind heading or --kind all when needed.""",
+)
+@click.argument("query", metavar="QUERY")
+@click.option("--phrase", is_flag=True, help="treat query as an exact phrase (word order must match)")
+@click.option("--raw", is_flag=True, help="pass query directly to FTS5 (AND/OR/NOT, prefix*, NEAR, groups)")
+@click.option(
+    "--order",
+    type=click.Choice(["rank", "first", "last"]),
+    default="rank",
+    metavar="ORDER",
+    help="search result order: rank (BM25); first (book asc + position asc); last (book desc + position desc)",
+)
+@click.option("--author", default=None, help="filter results by author (substring match)")
+@click.option("--title", default=None, help="filter results by title (substring match)")
+@click.option("--book", type=int, default=None, help="restrict to a single book by PG ID")
+@click.option(
+    "--kind",
+    type=click.Choice(["text", "heading", "all"]),
+    default="text",
+    metavar="KIND",
+    help="chunk kind to search (default: text)",
+)
+@click.option(
+    "--section",
+    default=None,
+    help="restrict to a section by path prefix (e.g. 'STAVE ONE') or section number from 'toc'",
+)
+@click.option("--limit", type=int, default=10, help="max results (default: 10)")
+@click.option(
+    "--radius",
+    type=int,
+    default=None,
+    help="surrounding passage on each side of each hit, in reading order",
+)
+@click.option("--count", is_flag=True, help="just print the number of matches")
+@click.option("--json", "json_output", is_flag=True, help="output results as JSON")
+@click.option("--db", default=None, metavar="DB", help=_DB_OVERRIDE_HELP)
+@click.option("-v", "--verbose", is_flag=True, default=False, help=_VERBOSE_HELP)
+@click.pass_context
+def _cmd_search(
+    ctx: click.Context,
+    query: str,
+    phrase: bool,
+    raw: bool,
+    order: str,
+    author: str | None,
+    title: str | None,
+    book: int | None,
+    kind: str,
+    section: str | None,
+    limit: int,
+    radius: int | None,
+    count: bool,
+    json_output: bool,
+    db: str | None,
+    verbose: bool,
+) -> int:
+    effective_db = _resolve_db(ctx, db)
+    if _resolve_verbose(ctx, verbose):
+        _configure_logging(True)
+    as_json = json_output
     display = _display()
-    if args.limit <= 0:
+
+    if phrase and raw:
+        return _command_error("search", "--phrase and --raw are mutually exclusive.", as_json=as_json)
+    if limit <= 0:
         return _command_error("search", "--limit must be > 0.", as_json=as_json)
-    if args.radius is not None and args.radius < 0:
+    if radius is not None and radius < 0:
         return _command_error("search", "--radius must be >= 0.", as_json=as_json)
-    if args.count and args.radius is not None:
+    if count and radius is not None:
         return _command_error(
             "search",
             "--radius cannot be used with --count.",
             as_json=as_json,
         )
 
-    query_text = args.query.strip()
+    query_text = query.strip()
     if not query_text:
         return _command_error("search", "Search query must not be empty.", as_json=as_json)
 
     # Query mode: --phrase wraps as exact phrase, --raw passes through to FTS5,
     # default auto-escapes plain text so punctuation is ok.
-    if args.phrase:
+    if phrase:
         search_query = _fts_phrase_query(query_text)
         query_mode = "phrase"
-    elif args.raw:
+    elif raw:
         search_query = query_text
         query_mode = "raw"
     else:
         search_query = _safe_fts_query(query_text)
         query_mode = "auto"
 
-    radius = args.radius
-
     # Resolve --section: accept a section number (from 'toc') or path prefix.
     div_path: str | None = None
-    section_arg: str | None = args.section
-
-    limit = args.limit
+    section_arg: str | None = section
 
     warnings: list[str] = []
-    with Database(args.db) as db:
-        section_number_for = _section_number_lookup(db)
+    with Database(effective_db) as db_conn:
+        section_number_for = _section_number_lookup(db_conn)
 
-        if args.book is not None and not db.has_text(args.book):
-            warning = f"Book {args.book} is not in the database."
+        if book is not None and not db_conn.has_text(book):
+            warning = f"Book {book} is not in the database."
             warnings.append(warning)
             if not as_json:
-                display.warning(f"warning: {_book_id_ref(args.book)} is not in the database.")
+                display.warning(f"warning: {_book_id_ref(book)} is not in the database.")
 
         # Resolve section number → div path (requires book_id).
         if section_arg is not None:
@@ -1852,30 +1793,30 @@ def _cmd_search(args: argparse.Namespace) -> int:
                     return _command_error(
                         "search", "--section number must be >= 1.", as_json=as_json
                     )
-                if args.book is None:
+                if book is None:
                     return _command_error(
                         "search",
                         "--section with a number requires --book.",
                         as_json=as_json,
                     )
-                summary = _build_section_summary(db, args.book)
+                summary = _build_section_summary(db_conn, book)
                 if summary is None:
                     return _command_error(
                         "search",
-                        f"Book {args.book} has no sections.",
+                        f"Book {book} has no sections.",
                         as_json=as_json,
-                        display_message=f"{_book_id_ref(args.book)} has no sections.",
+                        display_message=f"{_book_id_ref(book)} has no sections.",
                     )
                 sections = summary["sections"]
                 if section_number > len(sections):
                     return _command_error(
                         "search",
                         f"Section {section_number} is out of range "
-                        f"(book {args.book} has {len(sections)} sections).",
+                        f"(book {book} has {len(sections)} sections).",
                         as_json=as_json,
                         display_message=(
                             f"Section {section_number} is out of range "
-                            f"({_book_id_ref(args.book, capitalize=False)} "
+                            f"({_book_id_ref(book, capitalize=False)} "
                             f"has {len(sections)} sections)."
                         ),
                     )
@@ -1889,23 +1830,23 @@ def _cmd_search(args: argparse.Namespace) -> int:
                         f"Invalid section selector: {exc}.",
                         as_json=as_json,
                     )
-                if args.book is not None:
+                if book is not None:
                     matched_section = _canonical_section_match(
-                        _build_section_summary(db, args.book), section_arg
+                        _build_section_summary(db_conn, book), section_arg
                     )
                     div_path = matched_section[0] if matched_section is not None else section_arg
                 else:
                     div_path = section_arg
 
-        search_author = args.author
-        search_title = args.title
-        search_book_id = args.book
-        search_kind = None if args.kind == "all" else args.kind
+        search_author = author
+        search_title = title
+        search_book_id = book
+        search_kind = None if kind == "all" else kind
         search_div_path = div_path
 
         try:
-            if args.count:
-                total_results = db.search_count(
+            if count:
+                total_results = db_conn.search_count(
                     search_query,
                     author=search_author,
                     title=search_title,
@@ -1915,14 +1856,14 @@ def _cmd_search(args: argparse.Namespace) -> int:
                 )
                 results = []
             else:
-                search_page = db.search_page(
+                search_page = db_conn.search_page(
                     search_query,
                     author=search_author,
                     title=search_title,
                     book_id=search_book_id,
                     kind=search_kind,
                     div_path=search_div_path,
-                    order=args.order,
+                    order=order,
                     limit=limit,
                 )
                 total_results = search_page.total_results
@@ -1934,18 +1875,18 @@ def _cmd_search(args: argparse.Namespace) -> int:
                 as_json=as_json,
                 data={
                     "query": {
-                        "raw": args.query,
+                        "raw": query,
                         "fts": search_query,
                         "mode": query_mode,
                     },
                     "filters": _json_search_filters(
-                        author=args.author,
-                        title=args.title,
-                        book_id=args.book,
-                        kind=args.kind,
+                        author=author,
+                        title=title,
+                        book_id=book,
+                        kind=kind,
                         section=section_arg,
                     ),
-                    "order": args.order,
+                    "order": order,
                     "limit": limit,
                     **({"radius": radius} if radius is not None else {}),
                 },
@@ -1956,10 +1897,10 @@ def _cmd_search(args: argparse.Namespace) -> int:
         for idx, result in enumerate(results, start=1):
             section = _section_path(result.div1, result.div2, result.div3, result.div4)
             if radius is None:
-                content = result.content
+                chunk_content = result.content
             else:
-                rows = db.chunk_window(result.book_id, result.position, around=radius)
-                content = _joined_chunk_text(rows)
+                rows = db_conn.chunk_window(result.book_id, result.position, around=radius)
+                chunk_content = _joined_chunk_text(rows)
             result_items.append(
                 _passage_payload(
                     book_id=result.book_id,
@@ -1970,7 +1911,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
                     position=result.position,
                     forward=None,
                     radius=radius,
-                    content=content,
+                    content=chunk_content,
                     extras={
                         "kind": result.kind,
                         "rank": idx,
@@ -1980,22 +1921,22 @@ def _cmd_search(args: argparse.Namespace) -> int:
             )
 
     # --count: just print the total.
-    if args.count:
+    if count:
         if as_json:
             _print_json_envelope(
                 "search",
                 ok=True,
                 data={
                     "query": {
-                        "raw": args.query,
+                        "raw": query,
                         "fts": search_query,
                         "mode": query_mode,
                     },
                     "filters": _json_search_filters(
-                        author=args.author,
-                        title=args.title,
-                        book_id=args.book,
-                        kind=args.kind,
+                        author=author,
+                        title=title,
+                        book_id=book,
+                        kind=kind,
                         section=section_arg,
                     ),
                     "count": total_results,
@@ -2009,18 +1950,18 @@ def _cmd_search(args: argparse.Namespace) -> int:
     if as_json:
         data = {
             "query": {
-                "raw": args.query,
+                "raw": query,
                 "fts": search_query,
                 "mode": query_mode,
             },
             "filters": _json_search_filters(
-                author=args.author,
-                title=args.title,
-                book_id=args.book,
-                kind=args.kind,
+                author=author,
+                title=title,
+                book_id=book,
+                kind=kind,
                 section=section_arg,
             ),
-            "order": args.order,
+            "order": order,
             "limit": limit,
             "total_results": total_results,
             "shown_results": len(result_items),
@@ -2039,8 +1980,8 @@ def _cmd_search(args: argparse.Namespace) -> int:
         return 0
 
     display.search_results(
-        query=args.query,
-        order=args.order,
+        query=query,
+        order=order,
         items=result_items,
         total_results=total_results,
     )
@@ -2329,7 +2270,7 @@ def _resolve_toc_book_id(
     db: Database,
     requested_id: int,
     *,
-    args: argparse.Namespace,
+    refresh: bool = False,
     display: CliDisplay,
     as_json: bool,
 ) -> tuple[int | None, list[str]]:
@@ -2337,7 +2278,7 @@ def _resolve_toc_book_id(
     if db.has_text(requested_id):
         return requested_id, []
 
-    catalog = _load_catalog(args, display=display, as_json=as_json)
+    catalog = _load_catalog(refresh, display=display, as_json=as_json)
     rec = catalog.get(requested_id)
     if rec is None:
         return requested_id, []
@@ -2364,15 +2305,53 @@ def _resolve_toc_book_id(
     return rec.id, []
 
 
-def _cmd_toc(args: argparse.Namespace) -> int:
-    as_json = getattr(args, "json", False)
+@_cli.command(
+    "toc",
+    help="show structural table of contents for a book",
+    epilog="""
+examples:
+  gutenbit toc 2600
+  gutenbit toc 100 --expand all
+  gutenbit toc 2600 --json
+
+
+if the book is missing, `toc` adds it automatically before rendering.
+
+
+section numbers in this output can be passed to:
+  gutenbit view 2600 --section <NUMBER>""",
+)
+@click.argument("book", type=int, metavar="BOOK_ID")
+@click.option(
+    "--expand",
+    type=click.Choice(["1", "2", "3", "4", "all"]),
+    default=DEFAULT_TOC_EXPAND,
+    metavar="DEPTH",
+    help="show heading levels up to this depth (default: 2; use 'all' for every level)",
+)
+@click.option("--json", "json_output", is_flag=True, help="output as JSON")
+@click.option("--db", default=None, metavar="DB", help=_DB_OVERRIDE_HELP)
+@click.option("-v", "--verbose", is_flag=True, default=False, help=_VERBOSE_HELP)
+@click.pass_context
+def _cmd_toc(
+    ctx: click.Context,
+    book: int,
+    expand: str,
+    json_output: bool,
+    db: str | None,
+    verbose: bool,
+) -> int:
+    effective_db = _resolve_db(ctx, db)
+    if _resolve_verbose(ctx, verbose):
+        _configure_logging(True)
+    as_json = json_output
     display = _display()
-    expand_depth = _toc_expand_depth(args.expand)
-    with Database(args.db) as db:
+    expand_depth = _toc_expand_depth(expand)
+    with Database(effective_db) as db_conn:
         resolved_book_id, ingest_errors = _resolve_toc_book_id(
-            db,
-            args.book,
-            args=args,
+            db_conn,
+            book,
+            refresh=False,
             display=display,
             as_json=as_json,
         )
@@ -2381,52 +2360,117 @@ def _cmd_toc(args: argparse.Namespace) -> int:
                 _print_json_envelope(
                     "toc",
                     ok=False,
-                    data={JSON_BOOK_ID_KEY: args.book},
-                    errors=ingest_errors or [f"Failed to add book {args.book}."],
+                    data={JSON_BOOK_ID_KEY: book},
+                    errors=ingest_errors or [f"Failed to add book {book}."],
                 )
             return 1
         if as_json:
-            summary = _build_section_summary(db, resolved_book_id, expand_depth=expand_depth)
+            summary = _build_section_summary(db_conn, resolved_book_id, expand_depth=expand_depth)
             if summary is None:
                 return _command_error(
                     "toc",
-                    _no_chunks_message(db, resolved_book_id),
+                    _no_chunks_message(db_conn, resolved_book_id),
                     as_json=True,
-                    data={JSON_BOOK_ID_KEY: args.book},
+                    data={JSON_BOOK_ID_KEY: book},
                 )
             _print_json_envelope(
                 "toc",
                 ok=True,
                 data={
-                    JSON_BOOK_ID_KEY: args.book,
-                    "expand": args.expand,
+                    JSON_BOOK_ID_KEY: book,
+                    "expand": expand,
                     "toc": _section_summary_json_payload(summary),
                 },
             )
             return 0
-        return _render_section_summary(db, resolved_book_id, expand_depth=expand_depth)
+        return _render_section_summary(db_conn, resolved_book_id, expand_depth=expand_depth)
 
 
-def _cmd_view(args: argparse.Namespace) -> int:
-    as_json = getattr(args, "json", False)
+@_cli.command(
+    "view",
+    help="read stored book text, or focused parts of it",
+    epilog="""
+examples:
+  gutenbit toc 1342                                  # inspect structure first
+  gutenbit view 1342                                 # first structural section + quick actions
+  gutenbit view 1342 --all                           # full reconstructed text
+  gutenbit view 1342 --section 1                     # first passage in section 1
+  gutenbit view 1342 --section 1 --all               # full section, including nested subsections
+  gutenbit view 1342 --section 1 --forward 5         # first 5 passages in section 1
+  gutenbit view 1342 --section 1 --radius 1          # surrounding passage around the section start
+  gutenbit view 1342 --position 1                    # passage at position 1
+  gutenbit view 1342 --position 1 --forward 5        # continue reading from position
+  gutenbit view 1342 --position 1 --radius 1         # surrounding passage around position
+  gutenbit view 1342 --section "Chapter 1" --forward 5 --json
+
+
+selectors (choose at most one):
+  --position <n> | --section <SECTION_SELECTOR>
+""",
+)
+@click.argument("book", type=int, metavar="BOOK_ID")
+@click.option("--position", type=int, default=None, help="select the passage at this exact position")
+@click.option(
+    "--section",
+    default=None,
+    help='read from a section selector: path prefix (e.g. PART ONE/CHAPTER I) or section number from `toc` (e.g. "3")',
+)
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    help="read the full selected scope (whole book or selected section, including nested subsections)",
+)
+@click.option(
+    "--forward",
+    type=int,
+    default=None,
+    help="passages to read forward (default: opening=3, section/position=1)",
+)
+@click.option(
+    "--radius",
+    type=int,
+    default=None,
+    help="surrounding passage on each side of the selected passage",
+)
+@click.option("--json", "json_output", is_flag=True, help="output as JSON")
+@click.option("--db", default=None, metavar="DB", help=_DB_OVERRIDE_HELP)
+@click.option("-v", "--verbose", is_flag=True, default=False, help=_VERBOSE_HELP)
+@click.pass_context
+def _cmd_view(
+    ctx: click.Context,
+    book: int,
+    position: int | None,
+    section: str | None,
+    show_all: bool,
+    forward: int | None,
+    radius: int | None,
+    json_output: bool,
+    db: str | None,
+    verbose: bool,
+) -> int:
+    effective_db = _resolve_db(ctx, db)
+    if _resolve_verbose(ctx, verbose):
+        _configure_logging(True)
+    as_json = json_output
     display = _display()
-    selected = int(args.position is not None) + int(args.section is not None)
+    selected = int(position is not None) + int(section is not None)
     if selected > 1:
         return _command_error(
             "view",
             "Choose at most one selector: --position or --section.",
             as_json=as_json,
         )
-    if args.forward is not None and args.forward <= 0:
+    if forward is not None and forward <= 0:
         return _command_error("view", "--forward must be > 0.", as_json=as_json)
-    if args.radius is not None and args.radius < 0:
+    if radius is not None and radius < 0:
         return _command_error("view", "--radius must be >= 0.", as_json=as_json)
     shapes_selected = sum(
         int(value)
         for value in [
-            args.forward is not None,
-            args.radius is not None,
-            args.all,
+            forward is not None,
+            radius is not None,
+            show_all,
         ]
     )
     if shapes_selected > 1:
@@ -2438,13 +2482,13 @@ def _cmd_view(args: argparse.Namespace) -> int:
             ),
             as_json=as_json,
         )
-    if args.radius is not None and selected == 0:
+    if radius is not None and selected == 0:
         return _command_error(
             "view",
             "--radius requires --position or --section.",
             as_json=as_json,
         )
-    if args.all and args.position is not None:
+    if show_all and position is not None:
         return _command_error(
             "view",
             "--all can be used with a book or section, not with --position.",
@@ -2452,17 +2496,16 @@ def _cmd_view(args: argparse.Namespace) -> int:
         )
 
     def _effective_forward(default: int) -> int:
-        return args.forward if args.forward is not None else default
+        return forward if forward is not None else default
 
-    radius = args.radius
     requested_forward = (
-        None if radius is not None or args.all else _effective_forward(DEFAULT_VIEW_FORWARD)
+        None if radius is not None or show_all else _effective_forward(DEFAULT_VIEW_FORWARD)
     )
-    requested_all = True if args.all else None
-    with Database(args.db) as db:
-        section_number_for = _section_number_lookup(db)
-        book_record = db.book(args.book)
-        title = _single_line(book_record.title) if book_record else f"Book {args.book}"
+    requested_all = True if show_all else None
+    with Database(effective_db) as db_conn:
+        section_number_for = _section_number_lookup(db_conn)
+        book_record = db_conn.book(book)
+        title = _single_line(book_record.title) if book_record else f"Book {book}"
         author = _single_line(book_record.authors) if book_record and book_record.authors else ""
 
         def _view_payload(
@@ -2477,7 +2520,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
             extras: dict[str, Any] | None = None,
         ) -> dict[str, Any]:
             return _passage_payload(
-                book_id=args.book,
+                book_id=book,
                 title=title,
                 author=author,
                 section=section,
@@ -2500,43 +2543,43 @@ def _cmd_view(args: argparse.Namespace) -> int:
                 read=_estimate_read_time(words),
             )
 
-        if args.position is not None:
-            anchor = db.chunk_by_position(args.book, args.position)
+        if position is not None:
+            anchor = db_conn.chunk_by_position(book, position)
             if anchor is None:
                 return _command_error(
                     "view",
-                    f"No chunk found at position {args.position} in book {args.book}.",
+                    f"No chunk found at position {position} in book {book}.",
                     as_json=as_json,
                     display_message=(
-                        f"No chunk found at position {args.position} in "
-                        f"{_book_id_ref(args.book, capitalize=False)}."
+                        f"No chunk found at position {position} in "
+                        f"{_book_id_ref(book, capitalize=False)}."
                     ),
                     data=_view_payload(
                         section=None,
                         section_number=None,
-                        position=args.position,
+                        position=position,
                         forward=requested_forward,
                         radius=radius,
                         all_scope=requested_all,
                     ),
                 )
             anchor_section = _section_path(anchor.div1, anchor.div2, anchor.div3, anchor.div4)
-            anchor_section_number = section_number_for(args.book, anchor_section)
+            anchor_section_number = section_number_for(book, anchor_section)
             if radius is not None:
-                rows = db.chunk_window(args.book, args.position, around=radius)
+                rows = db_conn.chunk_window(book, position, around=radius)
                 forward = None
                 all_scope = None
             else:
                 forward = _effective_forward(DEFAULT_VIEW_FORWARD)
                 all_scope = None
                 rows = [
-                    row for row in db.chunk_records(args.book) if row.position >= args.position
+                    row for row in db_conn.chunk_records(book) if row.position >= position
                 ]
                 rows = rows[:forward]
             record = _view_payload(
                 section=anchor_section,
                 section_number=anchor_section_number,
-                position=args.position,
+                position=position,
                 forward=forward,
                 radius=radius,
                 all_scope=all_scope,
@@ -2548,8 +2591,8 @@ def _cmd_view(args: argparse.Namespace) -> int:
             _print_passage(record, footer_stats=_view_footer_stats(rows))
             return 0
 
-        if args.section is not None:
-            section_query = args.section.strip()
+        if section is not None:
+            section_query = section.strip()
             if not section_query:
                 return _command_error(
                     "view",
@@ -2583,13 +2626,13 @@ def _cmd_view(args: argparse.Namespace) -> int:
                             all_scope=requested_all,
                         ),
                     )
-                summary = _build_section_summary(db, args.book)
+                summary = _build_section_summary(db_conn, book)
                 if summary is None:
                     return _command_error(
                         "view",
-                        _no_chunks_message(db, args.book),
+                        _no_chunks_message(db_conn, book),
                         as_json=as_json,
-                        display_message=_no_chunks_display_message(db, args.book),
+                        display_message=_no_chunks_display_message(db_conn, book),
                         data=_view_payload(
                             section=section_query,
                             section_number=section_number,
@@ -2603,14 +2646,14 @@ def _cmd_view(args: argparse.Namespace) -> int:
                 if section_number > len(raw_sections):
                     message = (
                         f"Section {section_number} is out of range for book "
-                        f"{args.book} (max {len(raw_sections)})."
+                        f"{book} (max {len(raw_sections)})."
                     )
                     display_message = (
                         f"Section {section_number} is out of range for "
-                        f"{_book_id_ref(args.book, capitalize=False)} "
+                        f"{_book_id_ref(book, capitalize=False)} "
                         f"(max {len(raw_sections)})."
                     )
-                    examples = _section_examples(db, args.book)
+                    examples = _section_examples(db_conn, book)
                     if as_json:
                         return _command_error(
                             "view",
@@ -2626,14 +2669,14 @@ def _cmd_view(args: argparse.Namespace) -> int:
                                 extras={
                                     "max_section_number": len(raw_sections),
                                     "available_sections": examples,
-                                    "tip": f"gutenbit toc {args.book}",
+                                    "tip": f"gutenbit toc {book}",
                                 },
                             ),
                         )
                     display.examples(
                         display_message,
                         examples=examples,
-                        tip=f"gutenbit toc {args.book}",
+                        tip=f"gutenbit toc {book}",
                     )
                     return 1
                 selected_section = raw_sections[section_number - 1]
@@ -2642,12 +2685,12 @@ def _cmd_view(args: argparse.Namespace) -> int:
                         "view",
                         (
                             f"Unable to resolve section number {section_number} "
-                            f"for book {args.book}."
+                            f"for book {book}."
                         ),
                         as_json=as_json,
                         display_message=(
                             f"Unable to resolve section number {section_number} "
-                            f"for {_book_id_ref(args.book, capitalize=False)}."
+                            f"for {_book_id_ref(book, capitalize=False)}."
                         ),
                         data=_view_payload(
                             section=section_query,
@@ -2656,7 +2699,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
                             forward=requested_forward,
                             radius=radius,
                             all_scope=requested_all,
-                            extras={"tip": f"gutenbit toc {args.book}"},
+                            extras={"tip": f"gutenbit toc {book}"},
                         ),
                     )
                 resolved_section = selected_section["section"].strip()
@@ -2665,12 +2708,12 @@ def _cmd_view(args: argparse.Namespace) -> int:
                         "view",
                         (
                             f"Unable to resolve section number {section_number} "
-                            f"for book {args.book}."
+                            f"for book {book}."
                         ),
                         as_json=as_json,
                         display_message=(
                             f"Unable to resolve section number {section_number} "
-                            f"for {_book_id_ref(args.book, capitalize=False)}."
+                            f"for {_book_id_ref(book, capitalize=False)}."
                         ),
                         data=_view_payload(
                             section=section_query,
@@ -2679,14 +2722,14 @@ def _cmd_view(args: argparse.Namespace) -> int:
                             forward=requested_forward,
                             radius=radius,
                             all_scope=requested_all,
-                            extras={"tip": f"gutenbit toc {args.book}"},
+                            extras={"tip": f"gutenbit toc {book}"},
                         ),
                     )
             else:
-                section_number = section_number_for(args.book, resolved_section)
+                section_number = section_number_for(book, resolved_section)
                 try:
                     matched_section = _canonical_section_match(
-                        _build_section_summary(db, args.book), resolved_section
+                        _build_section_summary(db_conn, book), resolved_section
                     )
                 except ValueError as exc:
                     return _command_error(
@@ -2705,12 +2748,12 @@ def _cmd_view(args: argparse.Namespace) -> int:
                 if matched_section is not None:
                     resolved_section, section_number = matched_section
 
-            rows = db.chunks_by_div(args.book, resolved_section, limit=0)
+            rows = db_conn.chunks_by_div(book, resolved_section, limit=0)
             if not rows:
-                examples = _section_examples(db, args.book)
-                message = f"No chunks found for book {args.book} under section '{section_query}'."
+                examples = _section_examples(db_conn, book)
+                message = f"No chunks found for book {book} under section '{section_query}'."
                 display_message = (
-                    f"No chunks found for {_book_id_ref(args.book, capitalize=False)} "
+                    f"No chunks found for {_book_id_ref(book, capitalize=False)} "
                     f"under section '{section_query}'."
                 )
                 if as_json:
@@ -2727,22 +2770,22 @@ def _cmd_view(args: argparse.Namespace) -> int:
                             all_scope=requested_all,
                             extras={
                                 "available_sections": examples,
-                                "tip": f"gutenbit toc {args.book}",
+                                "tip": f"gutenbit toc {book}",
                             },
                         ),
                     )
                 display.examples(
                     display_message,
                     examples=examples,
-                    tip=f"gutenbit toc {args.book}",
+                    tip=f"gutenbit toc {book}",
                 )
                 return 1
             anchor = rows[0]
             if radius is not None:
-                rows = db.chunk_window(args.book, anchor.position, around=radius)
+                rows = db_conn.chunk_window(book, anchor.position, around=radius)
                 forward = None
                 all_scope = None
-            elif args.all:
+            elif show_all:
                 forward = None
                 all_scope = True
             else:
@@ -2765,17 +2808,17 @@ def _cmd_view(args: argparse.Namespace) -> int:
             return 0
 
         forward = _effective_forward(DEFAULT_OPENING_CHUNK_COUNT)
-        summary = _build_section_summary(db, args.book)
-        action_hints = _view_action_hints(args.book, summary)
+        summary = _build_section_summary(db_conn, book)
+        action_hints = _view_action_hints(book, summary)
         first_section = summary["sections"][0] if summary and summary["sections"] else None
-        if args.all:
-            rows = db.chunk_records(args.book)
+        if show_all:
+            rows = db_conn.chunk_records(book)
             if not rows:
                 return _command_error(
                     "view",
-                    _no_chunks_message(db, args.book),
+                    _no_chunks_message(db_conn, book),
                     as_json=as_json,
-                    display_message=_no_chunks_display_message(db, args.book),
+                    display_message=_no_chunks_display_message(db_conn, book),
                     data=_view_payload(
                         section=first_section["section"] if first_section else None,
                         section_number=(
@@ -2791,7 +2834,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
             anchor_section = _section_path(anchor.div1, anchor.div2, anchor.div3, anchor.div4)
             record = _view_payload(
                 section=anchor_section,
-                section_number=section_number_for(args.book, anchor_section),
+                section_number=section_number_for(book, anchor_section),
                 position=anchor.position,
                 forward=None,
                 radius=None,
@@ -2812,13 +2855,13 @@ def _cmd_view(args: argparse.Namespace) -> int:
             )
             return 0
 
-        rows = _opening_rows(db, args.book, forward)
+        rows = _opening_rows(db_conn, book, forward)
         if not rows:
             return _command_error(
                 "view",
-                _no_chunks_message(db, args.book),
+                _no_chunks_message(db_conn, book),
                 as_json=as_json,
-                display_message=_no_chunks_display_message(db, args.book),
+                display_message=_no_chunks_display_message(db_conn, book),
                 data=_view_payload(
                     section=first_section["section"] if first_section else None,
                     section_number=(first_section["section_number"] if first_section else None),
@@ -2832,7 +2875,7 @@ def _cmd_view(args: argparse.Namespace) -> int:
         anchor_section = _section_path(anchor.div1, anchor.div2, anchor.div3, anchor.div4)
         record = _view_payload(
             section=anchor_section,
-            section_number=section_number_for(args.book, anchor_section),
+            section_number=section_number_for(book, anchor_section),
             position=anchor.position,
             forward=forward,
             radius=None,
@@ -2854,63 +2897,21 @@ def _cmd_view(args: argparse.Namespace) -> int:
         return 0
 
 
-_COMMANDS = {
-    "catalog": _cmd_catalog,
-    "add": _cmd_add,
-    "remove": _cmd_remove,
-    "books": _cmd_books,
-    "search": _cmd_search,
-    "toc": _cmd_toc,
-    "view": _cmd_view,
-}
-
-
 def main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    if args.verbose:
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(levelname)s %(name)s: %(message)s",
-            stream=sys.stdout,
-        )
-    else:
-        logging.basicConfig(level=logging.WARNING, format="%(message)s", stream=sys.stdout)
-
-    # Suppress verbose transport logs unless users explicitly inspect networking.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-    if not args.command:
-        parser.print_help()
-        return 0
-
-    handler = _COMMANDS.get(args.command)
-    if handler is None:
-        parser.print_help()
-        return 1
     try:
-        return handler(args)
+        result = _cli.main(args=argv, standalone_mode=False)
+        return result if isinstance(result, int) else 0
+    except click.exceptions.UsageError as exc:
+        exc.show()
+        sys.exit(2)
+    except click.exceptions.Abort:
+        _display().error("\nInterrupted.")
+        return 130
     except KeyboardInterrupt:
-        if getattr(args, "json", False):
-            _print_json_envelope(args.command, ok=False, errors=["Interrupted."])
-        else:
-            _display().error("\nInterrupted.")
+        _display().error("\nInterrupted.")
         return 130
     except Exception as exc:
-        if getattr(args, "json", False):
-            _print_json_envelope(args.command, ok=False, errors=[f"Error: {exc}"])
-            if args.verbose:
-                import traceback
-
-                traceback.print_exc()
-        else:
-            _display().error(f"Error: {exc}", err=True)
-            if args.verbose:
-                import traceback
-
-                traceback.print_exc()
+        _display().error(f"Error: {exc}", err=True)
         return 1
 
 
