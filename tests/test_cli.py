@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import io
 from pathlib import Path
 
@@ -125,7 +126,9 @@ def test_help_uses_command_placeholder_instead_of_choice_braces():
     assert "project gutenberg:" not in rendered
     assert "local state:" not in rendered
     assert "not affiliated with Project Gutenberg" in rendered
-    assert "stores its SQLite database and catalog cache in" in rendered
+    normalized = re.sub(r"\s+", " ", rendered)
+    assert "all application data is stored at ~/.gutenbit" in normalized
+    assert "SQLite database path (default: ~/.gutenbit/gutenbit.db)" in rendered
 
 
 def test_display_cli_path_preserves_relative_and_home_relative_paths():
