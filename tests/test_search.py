@@ -2298,7 +2298,7 @@ def test_ingest_reprocesses_stale_chunker_version(tmp_path, monkeypatch):
         lambda _self, _book_ids: {889: TextState(has_text=True, has_current_text=False)},
     )
 
-    def _capture_ingest(_self, book, *, delay, force, state):
+    def _capture_ingest(_self, book, *, delay, force, state, progress_callback=None):
         ingested_ids.append(book.id)
         return True
 
@@ -2336,7 +2336,7 @@ def test_add_refresh_flag_reprocesses_current_book(tmp_path, monkeypatch):
     )
     ingested_ids: list[int] = []
 
-    def _capture_ingest(_self, book, *, delay, force, state):
+    def _capture_ingest(_self, book, *, delay, force, state, progress_callback=None):
         seen["force"] = force
         ingested_ids.append(book.id)
         return True
@@ -2399,7 +2399,7 @@ def test_ingest_remaps_to_canonical_catalog_id(tmp_path, monkeypatch):
         lambda _self, _book_ids: {100: TextState(has_text=False, has_current_text=False)},
     )
 
-    def _capture_ingest(_self, book, *, delay, force, state):
+    def _capture_ingest(_self, book, *, delay, force, state, progress_callback=None):
         ingested_ids.append(book.id)
         return True
 
@@ -2882,7 +2882,7 @@ def test_add_json_output(tmp_path, monkeypatch):
         lambda _self, _book_ids: {100: TextState(has_text=False, has_current_text=False)},
     )
 
-    def _capture_ingest(_self, book, *, delay, force, state):
+    def _capture_ingest(_self, book, *, delay, force, state, progress_callback=None):
         ingested_ids.append(book.id)
         return True
 

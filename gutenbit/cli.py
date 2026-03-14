@@ -506,31 +506,27 @@ def _ingest_one_book(
     force: bool = False,
     progress_callback: IngestProgressCallback | None = None,
 ) -> bool:
-    def _run_ingest() -> bool:
-        if progress_callback is None:
+    if as_json:
+        previous_disable = logging.root.manager.disable
+        logging.disable(logging.CRITICAL)
+        try:
             return db._ingest_book(
                 book,
                 delay=delay,
                 force=force,
                 state=state,
+                progress_callback=progress_callback,
             )
-        return db._ingest_book(
-            book,
-            delay=delay,
-            force=force,
-            state=state,
-            progress_callback=progress_callback,
-        )
-
-    if as_json:
-        previous_disable = logging.root.manager.disable
-        logging.disable(logging.CRITICAL)
-        try:
-            return _run_ingest()
         finally:
             logging.disable(previous_disable)
 
-    return _run_ingest()
+    return db._ingest_book(
+        book,
+        delay=delay,
+        force=force,
+        state=state,
+        progress_callback=progress_callback,
+    )
 
 
 def _process_books_for_ingest(

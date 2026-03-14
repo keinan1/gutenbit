@@ -358,37 +358,54 @@ def _collapse_section_rows(
     section_rows: list[_SectionRow], *, expand_depth: int
 ) -> list[_SectionRow]:
     if expand_depth >= 4:
-        return [cast(_SectionRow, dict(section)) for section in section_rows]
+        return list(section_rows)
 
-    visible_rows: list[_SectionRow] = []
+    # Identify visible rows and accumulate content from hidden descendants.
+    visible_source: list[_SectionRow] = []
     visible_parts: list[tuple[str, ...]] = []
+    extra_paras: list[int] = []
+    extra_chars: list[int] = []
+    extra_opening: list[str] = []
+
     for section in section_rows:
-        row = cast(_SectionRow, dict(section))
-        parts = _section_path_parts(str(row["section"]))
+        parts = _section_path_parts(str(section["section"]))
         if len(parts) <= expand_depth:
-            visible_rows.append(row)
+            visible_source.append(section)
             visible_parts.append(parts)
+            extra_paras.append(0)
+            extra_chars.append(0)
+            extra_opening.append("")
             continue
 
-        for idx in range(len(visible_rows) - 1, -1, -1):
+        for idx in range(len(visible_source) - 1, -1, -1):
             ancestor_parts = visible_parts[idx]
             if len(ancestor_parts) > len(parts) or parts[: len(ancestor_parts)] != ancestor_parts:
                 continue
-            visible_rows[idx]["paras"] = int(visible_rows[idx]["paras"]) + int(row["paras"])
-            visible_rows[idx]["chars"] = int(visible_rows[idx]["chars"]) + int(row["chars"])
-            if (
-                not str(visible_rows[idx]["opening_line"]).strip()
-                and str(row["opening_line"]).strip()
-            ):
-                visible_rows[idx]["opening_line"] = str(row["opening_line"])
+            extra_paras[idx] += int(section["paras"])
+            extra_chars[idx] += int(section["chars"])
+            if not extra_opening[idx].strip() and str(section["opening_line"]).strip():
+                extra_opening[idx] = str(section["opening_line"])
             break
 
-    for row in visible_rows:
-        chars = int(row["chars"])
-        words = round(chars / 5) if chars else 0
-        row["est_words"] = words
-        row["est_read"] = _estimate_read_time(words)
-    return visible_rows
+    result: list[_SectionRow] = []
+    for src, ep, ec, eo in zip(visible_source, extra_paras, extra_chars, extra_opening):
+        total_paras = int(src["paras"]) + ep
+        total_chars = int(src["chars"]) + ec
+        opening = str(src["opening_line"]) if str(src["opening_line"]).strip() else eo
+        words = round(total_chars / 5) if total_chars else 0
+        result.append(
+            {
+                "section_number": src["section_number"],
+                "section": src["section"],
+                "position": src["position"],
+                "paras": total_paras,
+                "chars": total_chars,
+                "est_words": words,
+                "est_read": _estimate_read_time(words),
+                "opening_line": opening,
+            }
+        )
+    return result
 
 
 def _visible_section_number(
