@@ -1007,6 +1007,106 @@ def test_toc_default_json(tmp_path):
     assert "Moby Dick" in search_out
 
 
+def test_toc_auto_adds_missing_book(tmp_path, monkeypatch):
+    book = BookRecord(
+        id=100,
+        title="Canonical Work",
+        authors="Example, Author",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    catalog = Catalog([book], canonical_id_by_id={100: 100})
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda **_kwargs: catalog))
+
+    def _store_book(_self, stored_book, *, delay, force, state, progress_callback=None):
+        _self._store(stored_book, chunk_html(_BOOK_HTML))
+        return True
+
+    monkeypatch.setattr(Database, "_ingest_book", _store_book)
+
+    code, out, _err = _run_cli(tmp_path / "toc-auto-add.db", "toc", "100")
+
+    assert code == 0
+    assert "adding 100: Canonical Work..." in out
+    assert "added 100: Canonical Work" in out
+    assert "Canonical Work" in out
+    assert "Gutenberg ID  100" in out
+    assert "CHAPTER 1" in out
+
+
+def test_toc_remapped_request_uses_stored_canonical_book(tmp_path, monkeypatch):
+    canonical = BookRecord(
+        id=100,
+        title="Canonical Work",
+        authors="Example, Author",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    db = Database(tmp_path / "toc-canonical.db")
+    db._store(canonical, chunk_html(_BOOK_HTML))
+    db_path = db.path
+    db.close()
+
+    catalog = Catalog([canonical], canonical_id_by_id={100: 100, 101: 100})
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda **_kwargs: catalog))
+
+    def _unexpected_ingest(*_args, **_kwargs):
+        raise AssertionError("_ingest_book() should not run when canonical text is already stored")
+
+    monkeypatch.setattr(Database, "_ingest_book", _unexpected_ingest)
+
+    code, out, _err = _run_cli(db_path, "toc", "101")
+
+    assert code == 0
+    assert "remapped 101 -> 100: Canonical Work" in out
+    assert "Canonical Work" in out
+    assert "Gutenberg ID  100" in out
+    assert "Book ID 101 is not in the database." not in out
+
+
+def test_toc_json_auto_adds_and_reports_canonical_book(tmp_path, monkeypatch):
+    canonical = BookRecord(
+        id=100,
+        title="Canonical Work",
+        authors="Example, Author",
+        language="en",
+        subjects="",
+        locc="",
+        bookshelves="",
+        issued="",
+        type="Text",
+    )
+    catalog = Catalog([canonical], canonical_id_by_id={100: 100, 101: 100})
+    monkeypatch.setattr("gutenbit.cli.Catalog.fetch", staticmethod(lambda **_kwargs: catalog))
+
+    def _store_book(_self, stored_book, *, delay, force, state, progress_callback=None):
+        _self._store(stored_book, chunk_html(_BOOK_HTML))
+        return True
+
+    monkeypatch.setattr(Database, "_ingest_book", _store_book)
+
+    code, out, _err = _run_cli(tmp_path / "toc-json-auto-add.db", "toc", "101", "--json")
+
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["ok"] is True
+    assert payload["command"] == "toc"
+    assert payload["warnings"] == []
+    assert payload["errors"] == []
+    assert payload["data"]["book_id"] == 101
+    assert payload["data"]["toc"]["book"]["id"] == 100
+    assert payload["data"]["toc"]["book"]["title"] == "Canonical Work"
+    assert payload["data"]["toc"]["quick_actions"]["view_all"] == "gutenbit view 100 --all"
+
+
 def test_toc_default_expand_collapses_nested_sections_and_rolls_up_hidden_stats(tmp_path):
     db = _make_nested_sections_db(tmp_path)
     db_path = db.path

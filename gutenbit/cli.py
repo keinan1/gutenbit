@@ -1107,10 +1107,10 @@ tip: use 'gutenbit toc <id>' first to see a book's structure, then
     tc = sub.add_parser(
         "toc",
         formatter_class=fmt,
-        help="show structural table of contents for a stored book",
+        help="show structural table of contents for a book",
         description=(
             "Show a compact structural summary of one stored book, including "
-            "section numbering for ergonomic section selection in `view`. "
+            "section numbering for easy section selection in `view`. "
             "Use --expand to control how many heading levels the table shows."
         ),
         epilog="""\
@@ -1118,6 +1118,8 @@ examples:
   gutenbit toc 2600
   gutenbit toc 100 --expand all
   gutenbit toc 2600 --json
+
+if the book is missing, `toc` adds it automatically before rendering.
 
 section numbers in this output can be passed to:
   gutenbit view 2600 --section <NUMBER>""",
@@ -2291,16 +2293,72 @@ def _view_action_hints(book_id: int, summary: _SectionSummary | None) -> dict[st
     }
 
 
+def _resolve_toc_book_id(
+    db: Database,
+    requested_id: int,
+    *,
+    args: argparse.Namespace,
+    display: CliDisplay,
+    as_json: bool,
+) -> tuple[int | None, list[str]]:
+    """Resolve a toc request to stored text, auto-adding the canonical book when needed."""
+    if db.has_text(requested_id):
+        return requested_id, []
+
+    catalog = _load_catalog(args, display=display, as_json=as_json)
+    rec = catalog.get(requested_id)
+    if rec is None:
+        return requested_id, []
+
+    title = _single_line(rec.title)
+    if rec.id != requested_id and not as_json:
+        display.status(f"  remapped {requested_id} -> {rec.id}: {title} (canonical edition)")
+
+    state = db.text_states([rec.id]).get(rec.id, TextState(has_text=False, has_current_text=False))
+    if state.has_current_text:
+        return rec.id, []
+
+    statuses, errors = _process_books_for_ingest(
+        db,
+        [rec],
+        delay=DEFAULT_DOWNLOAD_DELAY,
+        as_json=as_json,
+        display=display,
+        failure_action="add",
+        force=False,
+    )
+    if statuses.get(rec.id) == "failed":
+        return None, errors
+    return rec.id, []
+
+
 def _cmd_toc(args: argparse.Namespace) -> int:
     as_json = getattr(args, "json", False)
+    display = _display()
     expand_depth = _toc_expand_depth(args.expand)
     with Database(args.db) as db:
+        resolved_book_id, ingest_errors = _resolve_toc_book_id(
+            db,
+            args.book,
+            args=args,
+            display=display,
+            as_json=as_json,
+        )
+        if resolved_book_id is None:
+            if as_json:
+                _print_json_envelope(
+                    "toc",
+                    ok=False,
+                    data={JSON_BOOK_ID_KEY: args.book},
+                    errors=ingest_errors or [f"Failed to add book {args.book}."],
+                )
+            return 1
         if as_json:
-            summary = _build_section_summary(db, args.book, expand_depth=expand_depth)
+            summary = _build_section_summary(db, resolved_book_id, expand_depth=expand_depth)
             if summary is None:
                 return _command_error(
                     "toc",
-                    _no_chunks_message(db, args.book),
+                    _no_chunks_message(db, resolved_book_id),
                     as_json=True,
                     data={JSON_BOOK_ID_KEY: args.book},
                 )
@@ -2314,7 +2372,7 @@ def _cmd_toc(args: argparse.Namespace) -> int:
                 },
             )
             return 0
-        return _render_section_summary(db, args.book, expand_depth=expand_depth)
+        return _render_section_summary(db, resolved_book_id, expand_depth=expand_depth)
 
 
 def _cmd_view(args: argparse.Namespace) -> int:
