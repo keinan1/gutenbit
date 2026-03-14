@@ -861,7 +861,8 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="gutenbit",
         formatter_class=fmt,
         description=(
-            "Find, store, inspect, read, and search Project Gutenberg books from your terminal."
+            "A tool for fast local search across public-domain literary works. "
+            "Find, browse and search books from your terminal."
         ),
         epilog="""\
 quick start:
@@ -874,14 +875,16 @@ quick start:
 learn more:
   gutenbit COMMAND --help    detailed help for one command
 
-gutenbit is an open-source project not affiliated with Project Gutenberg.
-It is for individual downloads, not bulk downloading.
-
-By default, gutenbit stores its SQLite database and catalog cache in
-~/.gutenbit/ (default database: ~/.gutenbit/gutenbit.db).""",
+gutenbit is an open-source project not affiliated with Project Gutenberg. It is for
+individual downloads, not bulk downloading. By default, all application data is
+stored at ~/.gutenbit.""",
     )
     p._optionals.title = "global options"
-    p.add_argument("--db", default=DEFAULT_DB, help="SQLite database path (default: %(default)s)")
+    p.add_argument(
+        "--db",
+        default=DEFAULT_DB,
+        help="SQLite database path (default: ~/.gutenbit/gutenbit.db)",
+    )
     p.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
     p.add_argument("-v", "--verbose", action="store_true", help="enable debug logging")
     sub = p.add_subparsers(dest="command", title="commands", metavar="COMMAND")
