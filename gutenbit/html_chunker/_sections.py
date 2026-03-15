@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -565,15 +566,20 @@ def _find_non_structural_boundary_after(
     Returns the heading tag itself so its position can be used as a stop boundary
     for paragraph collection.  Uses a restrictive pattern to avoid false positives
     on narrative headings like a singular "NOTE" epilogue.
+
+    Uses the precomputed heading index for O(log n) lookup instead of
+    O(n) DOM traversal via ``find_all_next``.
     """
-    for el in anchor.find_all_next(_HEADING_TAGS):
-        if not isinstance(el, Tag):
+    anchor_pos = doc_index.tag_positions.get(id(anchor))
+    if anchor_pos is None:
+        return None
+
+    lo = bisect_right(doc_index.heading_positions, anchor_pos)
+    for ih in doc_index.headings[lo:]:
+        if not doc_index.bounds.contains(ih.position):
             continue
-        if not _tag_within_bounds(el, doc_index.tag_positions, doc_index.bounds):
-            continue
-        heading_text = _clean_heading_text(_extract_heading_text(el))
-        if heading_text and _TAIL_BOUNDARY_HEADING_RE.match(heading_text):
-            return el
+        if ih.text and _TAIL_BOUNDARY_HEADING_RE.match(ih.text):
+            return ih.tag
     return None
 
 
