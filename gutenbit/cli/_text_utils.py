@@ -35,6 +35,11 @@ def _summarize_semicolon_list(raw: str, *, max_items: int) -> str:
     return f"{shown}; +{len(items) - max_items} more"
 
 
+def _normalize_apostrophes(s: str) -> str:
+    """Replace curly/typographic apostrophes with ASCII for matching."""
+    return s.replace("\u2019", "'").replace("\u2018", "'")
+
+
 def _indent_block(text: str, prefix: str = "    ") -> str:
     lines = text.splitlines()
     if not lines:

@@ -158,7 +158,7 @@ def _catalog_status_message(fetch_info: CatalogFetchInfo | None, *, refresh: boo
 
 
 # ---------------------------------------------------------------------------
-# Catalog and text normalization
+# Catalog loading
 # ---------------------------------------------------------------------------
 
 
@@ -175,11 +175,6 @@ def _load_catalog(refresh: bool = False, *, display: CliDisplay, as_json: bool) 
             )
         )
     return catalog
-
-
-def _normalize_apostrophes(s: str) -> str:
-    """Replace curly/typographic apostrophes with ASCII for matching."""
-    return s.replace("\u2019", "'").replace("\u2018", "'")
 
 
 # ---------------------------------------------------------------------------

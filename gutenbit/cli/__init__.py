@@ -18,43 +18,17 @@ from gutenbit.cli._commands import (
     _cmd_toc,
     _cmd_view,
 )
-
-# ---------------------------------------------------------------------------
-# Re-exports: these names are imported by tests and other consumers from
-# gutenbit.cli — keep them accessible here.
-# ---------------------------------------------------------------------------
-from gutenbit.catalog import Catalog as Catalog  # noqa: F401
-from gutenbit.cli._context import (  # noqa: F401
+from gutenbit.catalog import Catalog as Catalog  # noqa: F401 — tests monkeypatch gutenbit.cli.Catalog.fetch
+from gutenbit.cli._context import (
     _CONTEXT_SETTINGS,
     _DB_HELP,
     _VERBOSE_HELP,
     DEFAULT_DB,
     _display,
-    _display_cli_path,
 )
-from gutenbit.cli._json import (  # noqa: F401
-    _passage_payload,
-    _print_json_envelope,
-)
-from gutenbit.cli._sections import _build_section_summary  # noqa: F401
-from gutenbit.cli._text_utils import _select_section_opening_line  # noqa: F401
+from gutenbit.cli._json import _print_json_envelope
 
-__all__ = [
-    "Catalog",
-    "DEFAULT_DB",
-    "_CONTEXT_SETTINGS",
-    "_DB_HELP",
-    "_VERBOSE_HELP",
-    "_build_section_summary",
-    "_cli",
-    "_display",
-    "_display_cli_path",
-    "_entry_point",
-    "_passage_payload",
-    "_print_json_envelope",
-    "_select_section_opening_line",
-    "main",
-]
+__all__ = ["Catalog", "_cli", "_entry_point", "main"]
 
 # ---------------------------------------------------------------------------
 # CLI epilog

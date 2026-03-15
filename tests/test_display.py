@@ -1,7 +1,8 @@
 from copy import deepcopy
 from io import StringIO
 
-from gutenbit.cli import _build_section_summary, _passage_payload
+from gutenbit.cli._json import _passage_payload
+from gutenbit.cli._sections import _build_section_summary
 from gutenbit.cli._display import (
     CliDisplay,
     _footer_title,
