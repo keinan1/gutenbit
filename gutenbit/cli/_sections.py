@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from gutenbit.cli._context import _display, _load_catalog, _normalize_apostrophes
+from gutenbit.cli._context import _display, _load_catalog
 from gutenbit.cli._display import CliDisplay
 from gutenbit.cli._json import JSON_OPENING_LINE_PREVIEW_CHARS
 from gutenbit.cli._query import (
@@ -18,6 +18,7 @@ from gutenbit.cli._query import (
     _section_path_parts,
 )
 from gutenbit.cli._text_utils import (
+    _normalize_apostrophes,
     _preview,
     _select_section_opening_line,
     _single_line,
@@ -80,29 +81,6 @@ def _canonical_section_match(
         if div_parts_match(query_parts, _section_selector_parts(section_path)):
             return section_path, int(section["section_number"])
     return None
-
-
-def _truncate_section_label(label: str, width: int) -> str:
-    """Truncate a section path, preferring the most specific (deepest) level.
-
-    When the full path ("BOOK TITLE / CHAPTER 1") exceeds *width*,
-    show the deepest level with a ".../ " prefix so users see the
-    chapter name rather than a truncated book title.
-    """
-    if len(label) <= width:
-        return label
-    parts = label.split(" / ")
-    if len(parts) > 1:
-        deepest = parts[-1]
-        prefix = ".../ "
-        if len(prefix) + len(deepest) <= width:
-            return prefix + deepest
-        # Deepest level itself is too long — truncate it with prefix
-        keep = max(1, width - len(prefix) - 3)
-        return prefix + deepest[:keep] + "..."
-    # Single level, just truncate
-    keep = max(1, width - 3)
-    return label[:keep] + "..."
 
 
 def _section_examples(db: Database, book_id: int, *, limit: int = 5) -> list[str]:

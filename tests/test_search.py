@@ -20,8 +20,8 @@ from gutenbit.catalog import (
     CatalogFetchInfo,
     apply_catalog_policy,
 )
-from gutenbit.cli import _select_section_opening_line
 from gutenbit.cli import main as cli_main
+from gutenbit.cli._text_utils import _select_section_opening_line
 from gutenbit.db import Database, SearchResult, TextState
 from gutenbit.html_chunker import CHUNKER_VERSION, Chunk, chunk_html
 

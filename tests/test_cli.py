@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from gutenbit.catalog import BookRecord
-from gutenbit.cli import _display_cli_path
 from gutenbit.cli import main as cli_main
+from gutenbit.cli._context import _display_cli_path
 from gutenbit.db import Database
 from gutenbit.html_chunker import chunk_html
 
