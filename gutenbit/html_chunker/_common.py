@@ -185,7 +185,9 @@ def _collect_text_parts(node: Tag, parts: list[str], *, replace_br: bool = True)
             if child.name == "br":
                 if replace_br:
                     parts.append(" ")
-            elif child.name == "span" and "pagenum" in (child.get("class") or []):
+            elif child.name == "span" and "pagenum" in {
+                c.lower() for c in (child.get("class") or [])
+            }:
                 continue
             elif child.name == "img":
                 alt_value = child.get("alt")

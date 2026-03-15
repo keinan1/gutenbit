@@ -60,11 +60,6 @@ def _no_chunks_messages(db: Database, book_id: int) -> tuple[str, str]:
     )
 
 
-def _no_chunks_message(db: Database, book_id: int) -> str:
-    """Return a descriptive error for a book with no chunks (JSON contexts)."""
-    return _no_chunks_messages(db, book_id)[0]
-
-
 def _no_chunks_display_message(db: Database, book_id: int) -> str:
     """Return the human-facing no-chunks message with an explicit book ID label."""
     return _no_chunks_messages(db, book_id)[1]
