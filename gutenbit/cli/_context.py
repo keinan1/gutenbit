@@ -13,6 +13,7 @@ import click
 
 from gutenbit.catalog import Catalog, CatalogFetchInfo
 from gutenbit.cli._display import CliDisplay
+from gutenbit.cli._json import _print_json_envelope
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -213,8 +214,6 @@ def _command_error(
     data: dict[str, Any] | list[Any] | None = None,
     warnings: list[str] | None = None,
 ) -> int:
-    from gutenbit.cli._json import _print_json_envelope
-
     if as_json:
         _print_json_envelope(command, ok=False, data=data, warnings=warnings, errors=[message])
     else:
