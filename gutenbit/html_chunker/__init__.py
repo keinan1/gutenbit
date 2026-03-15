@@ -19,7 +19,6 @@ from bs4 import BeautifulSoup
 
 from gutenbit.html_chunker._common import (
     _HEADING_TAGS,
-    _Section,
 )
 from gutenbit.html_chunker._scanning import (
     _paragraphs_in_range,
@@ -94,7 +93,7 @@ def chunk_html(html: str) -> list[Chunk]:
         sections = _refine_toc_sections(
             toc_sections,
             heading_sections,
-            tag_positions=tag_positions,
+            doc_index=doc_index,
         )
     else:
         # Some Gutenberg editions expose page-number TOC links only.
@@ -111,16 +110,7 @@ def chunk_html(html: str) -> list[Chunk]:
     # e.g. chapter-only books (min_level=2) shift chapters to div1.
     min_level = min(s.level for s in sections)
     if min_level > 1:
-        sections = [
-            _Section(
-                s.anchor_id,
-                s.heading_text,
-                s.level - min_level + 1,
-                s.body_anchor,
-                s.heading_rank,
-            )
-            for s in sections
-        ]
+        sections = [s._with_level(s.level - min_level + 1) for s in sections]
 
     chunks: list[Chunk] = []
     pos = 0
@@ -147,7 +137,7 @@ def chunk_html(html: str) -> list[Chunk]:
     # NOTES) that appears after the last section.  This prevents endnotes from
     # being lumped into the last chapter.
     tail_anchor = _find_non_structural_boundary_after(
-        sections[-1].body_anchor, tag_positions=tag_positions, bounds=bounds
+        sections[-1].body_anchor, doc_index=doc_index
     )
 
     # Body sections.

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from bisect import bisect_left
+import re
+from bisect import bisect_right
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -11,33 +12,17 @@ from bs4 import Tag
 from gutenbit.html_chunker._common import (
     _BARE_HEADING_NUMBER_RE,
     _BROAD_KEYWORDS,
-    _ContentBounds,
     _FALLBACK_START_HEADING_RE,
-    _FRONT_MATTER_HEADINGS,
-    _HEADING_KEYWORD_RE,
     _HEADING_TAGS,
-    _HeadingRow,
-    _NON_ALNUM_RE,
     _NUMERIC_LINK_TEXT_RE,
     _PLAY_HEADING_PARAGRAPH_RE,
-    _ROMAN_NUMERAL_RE,
-    _Section,
     _STANDALONE_STRUCTURAL_RE,
-    _TAIL_BOUNDARY_HEADING_RE,
-    _TAIL_SECTION_HEADING_RE,
     _clean_heading_text,
+    _ContentBounds,
     _extract_heading_text,
-    _front_matter_heading_key,
     _heading_tag_rank,
-)
-from gutenbit.html_chunker._scanning import (
-    _DocumentIndex,
-    _IndexedParagraph,
-    _container_residue_without_link_text,
-    _is_dense_chapter_index_paragraph,
-    _is_toc_paragraph,
-    _tag_position,
-    _tag_within_bounds,
+    _HeadingRow,
+    _Section,
 )
 from gutenbit.html_chunker._headings import (
     _broad_heading_with_enumerated_child,
@@ -53,14 +38,13 @@ from gutenbit.html_chunker._headings import (
     _is_editorial_placeholder_heading,
     _is_emphasized_toc_link,
     _is_empty_front_matter_stub_heading,
-    _is_fallback_start_heading_text,
     _is_front_matter_attribution_heading,
     _is_ignorable_fallback_heading,
     _is_non_structural_heading_text,
     _is_rank5_subheading_under_nonchapter_section,
     _is_refinement_heading,
-    _is_shorter_adjacent_title_repeat,
     _is_short_uppercase_stage_heading,
+    _is_shorter_adjacent_title_repeat,
     _is_single_letter_subheading,
     _is_single_speaker_dialogue_heading,
     _is_title_like_heading,
@@ -73,6 +57,33 @@ from gutenbit.html_chunker._headings import (
     _split_play_heading_paragraph,
     _toc_link_refines_body_heading,
     _update_dramatic_context_state,
+)
+from gutenbit.html_chunker._scanning import (
+    _DocumentIndex,
+    _IndexedParagraph,
+    _tag_position,
+    _tag_within_bounds,
+)
+from gutenbit.html_chunker._toc import (
+    _is_structural_toc_link,
+    _looks_enumerated_toc_entry,
+    _toc_context_text,
+    _toc_entry_matches_heading,
+)
+
+# ---------------------------------------------------------------------------
+# Compiled regex patterns (used only within this module)
+# ---------------------------------------------------------------------------
+
+# Tail-boundary pattern: only clearly apparatus headings, not ambiguous
+# singular "NOTE" which can be a narrative epilogue (e.g. Dracula).
+_TAIL_BOUNDARY_HEADING_RE = re.compile(
+    r"^(?:footnotes?|endnotes?|notes\b|transcriber'?s?\s+note|editor'?s?\s+note)",
+    re.IGNORECASE,
+)
+_TAIL_SECTION_HEADING_RE = re.compile(
+    r"^(?:note\b|note to\b|letter\b|a letter from\b|finale\b|the conclusion\b)",
+    re.IGNORECASE,
 )
 
 # ---------------------------------------------------------------------------
@@ -129,8 +140,7 @@ def _parse_toc_sections(
             heading_el = _find_next_heading(
                 body_anchor,
                 used_headings,
-                tag_positions=tag_positions,
-                bounds=bounds,
+                doc_index=doc_index,
             )
         if not heading_el or id(heading_el) in used_headings:
             continue
@@ -289,16 +299,7 @@ def _respect_heading_rank_nesting(sections: list[_Section]) -> list[_Section]:
     if not changed:
         return sections
 
-    return [
-        _Section(
-            section.anchor_id,
-            section.heading_text,
-            new_levels[idx],
-            section.body_anchor,
-            section.heading_rank,
-        )
-        for idx, section in enumerate(sections)
-    ]
+    return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +480,7 @@ def _refine_toc_sections(
     toc_sections: list[_Section],
     heading_sections: list[_Section],
     *,
-    tag_positions: dict[int, int],
+    doc_index: _DocumentIndex,
 ) -> list[_Section]:
     """Supplement a valid TOC with deeper body headings.
 
@@ -495,6 +496,7 @@ def _refine_toc_sections(
     heading_idx = 0
 
     first_toc = toc_sections[0]
+    tag_positions = doc_index.tag_positions
     first_pos = _tag_position(first_toc.body_anchor, tag_positions)
     if first_pos is not None:
         while heading_idx < len(heading_sections):
@@ -506,15 +508,7 @@ def _refine_toc_sections(
             if candidate_pos >= first_pos:
                 break
             if _FALLBACK_START_HEADING_RE.match(candidate.heading_text):
-                refined.append(
-                    _Section(
-                        candidate.anchor_id,
-                        candidate.heading_text,
-                        min(candidate.level, first_toc.level),
-                        candidate.body_anchor,
-                        candidate.heading_rank,
-                    )
-                )
+                refined.append(candidate._with_level(min(candidate.level, first_toc.level)))
                 added += 1
             heading_idx += 1
 
@@ -565,23 +559,27 @@ def _refine_toc_sections(
 def _find_non_structural_boundary_after(
     anchor: Tag,
     *,
-    tag_positions: dict[int, int],
-    bounds: _ContentBounds,
+    doc_index: _DocumentIndex,
 ) -> Tag | None:
     """Find the first apparatus heading after *anchor* (e.g. FOOTNOTES, NOTES).
 
     Returns the heading tag itself so its position can be used as a stop boundary
     for paragraph collection.  Uses a restrictive pattern to avoid false positives
     on narrative headings like a singular "NOTE" epilogue.
+
+    Uses the precomputed heading index for O(log n) lookup instead of
+    O(n) DOM traversal via ``find_all_next``.
     """
-    for el in anchor.find_all_next(_HEADING_TAGS):
-        if not isinstance(el, Tag):
+    anchor_pos = doc_index.tag_positions.get(id(anchor))
+    if anchor_pos is None:
+        return None
+
+    lo = bisect_right(doc_index.heading_positions, anchor_pos)  # first heading strictly after anchor_pos
+    for ih in doc_index.headings[lo:]:
+        if not doc_index.bounds.contains(ih.position):
             continue
-        if not _tag_within_bounds(el, tag_positions, bounds):
-            continue
-        heading_text = _clean_heading_text(_extract_heading_text(el))
-        if heading_text and _TAIL_BOUNDARY_HEADING_RE.match(heading_text):
-            return el
+        if ih.text and _TAIL_BOUNDARY_HEADING_RE.match(ih.text):
+            return ih.tag
     return None
 
 
@@ -589,17 +587,26 @@ def _find_next_heading(
     anchor: Tag,
     used_headings: set[int] | None = None,
     *,
-    tag_positions: dict[int, int],
-    bounds: _ContentBounds,
+    doc_index: _DocumentIndex,
 ) -> Tag | None:
-    """Find the next ``<h1>``–``<h3>`` heading after *anchor*."""
-    for el in anchor.find_all_next(limit=25):
-        if isinstance(el, Tag) and el.name in ("h1", "h2", "h3"):
-            if used_headings is not None and id(el) in used_headings:
-                continue
-            if not _tag_within_bounds(el, tag_positions, bounds):
-                continue
-            return el
+    """Find the next ``<h1>``–``<h3>`` heading after *anchor*.
+
+    Uses the precomputed heading index for O(log n) lookup instead of
+    bounded DOM traversal via ``find_all_next``.
+    """
+    anchor_pos = doc_index.tag_positions.get(id(anchor))
+    if anchor_pos is None:
+        return None
+
+    lo = bisect_right(doc_index.heading_positions, anchor_pos)
+    for ih in doc_index.headings[lo:]:
+        if ih.tag.name not in ("h1", "h2", "h3"):
+            continue
+        if used_headings is not None and id(ih.tag) in used_headings:
+            continue
+        if not doc_index.bounds.contains(ih.position):
+            continue
+        return ih.tag
     return None
 
 
@@ -616,13 +623,7 @@ def _refined_candidate_section(
             allow_tail_title_like and _TAIL_SECTION_HEADING_RE.match(candidate.heading_text)
         ):
             return None
-        return _Section(
-            candidate.anchor_id,
-            candidate.heading_text,
-            _rank_relative_level(candidate, toc_section),
-            candidate.body_anchor,
-            candidate.heading_rank,
-        )
+        return candidate._with_level(_rank_relative_level(candidate, toc_section))
 
     if not _is_refinement_heading(candidate.heading_text):
         return None
@@ -698,16 +699,7 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
             for section_idx in range(idx + 1, next_idx):
                 new_levels[section_idx] += 1
 
-    return [
-        _Section(
-            section.anchor_id,
-            section.heading_text,
-            new_levels[idx],
-            section.body_anchor,
-            section.heading_rank,
-        )
-        for idx, section in enumerate(sections)
-    ]
+    return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
 
 
 def _nest_broad_subdivisions(sections: list[_Section]) -> list[_Section]:
@@ -754,16 +746,7 @@ def _nest_broad_subdivisions(sections: list[_Section]) -> list[_Section]:
     if not changed:
         return sections
 
-    return [
-        _Section(
-            section.anchor_id,
-            section.heading_text,
-            new_levels[idx],
-            section.body_anchor,
-            section.heading_rank,
-        )
-        for idx, section in enumerate(sections)
-    ]
+    return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
 
 
 def _promote_more_prominent_heading_runs(sections: list[_Section]) -> list[_Section]:
@@ -818,16 +801,7 @@ def _promote_more_prominent_heading_runs(sections: list[_Section]) -> list[_Sect
     if not changed:
         return sections
 
-    return [
-        _Section(
-            section.anchor_id,
-            section.heading_text,
-            new_levels[idx],
-            section.body_anchor,
-            section.heading_rank,
-        )
-        for idx, section in enumerate(sections)
-    ]
+    return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
 
 
 # ---------------------------------------------------------------------------
@@ -999,136 +973,3 @@ def _should_scan_paragraph_heading_rows(
             break
     return False
 
-
-# ---------------------------------------------------------------------------
-# TOC link helpers
-# ---------------------------------------------------------------------------
-
-
-def _is_toc_context_link(link: Tag) -> bool:
-    """Return True when *link* sits in a TOC-like container."""
-    if link.find_parent("tr") is not None:
-        return True
-
-    for name in ("p", "li", "div"):
-        container = link.find_parent(name)
-        if container is None:
-            continue
-        if container.name == "p" and _is_toc_paragraph(container):
-            return True
-
-        classes = {str(c).lower() for c in (container.get("class") or [])}
-        if "toc" in classes or "contents" in classes:
-            return True
-
-        residue = _container_residue_without_link_text(container)
-        if _NON_ALNUM_RE.sub("", residue) == "":
-            return True
-    return False
-
-
-def _toc_context_text(link: Tag) -> str:
-    """Return nearby non-link TOC text for a link, if any."""
-    for name in ("tr", "p", "li", "div"):
-        container = link.find_parent(name)
-        if container is None:
-            continue
-        text = _clean_heading_text(_container_residue_without_link_text(container))
-        if text:
-            return text
-    return ""
-
-
-def _looks_enumerated_toc_entry(text: str) -> bool:
-    """Return True for entries like ``I. Title`` or ``12. Title``."""
-    if not text:
-        return False
-    first_token = text.split(maxsplit=1)[0].rstrip(".)")
-    return _ROMAN_NUMERAL_RE.fullmatch(first_token) is not None or first_token.isdigit()
-
-
-def _previous_heading_text(link: Tag, *, doc_index: _DocumentIndex | None = None) -> str:
-    """Return the nearest preceding heading text, if any.
-
-    When *doc_index* is provided, uses the precomputed heading index with
-    bisect for O(log n) lookup instead of O(n) backward DOM traversal.
-    """
-    if doc_index is not None:
-        link_pos = doc_index.tag_positions.get(id(link))
-        if link_pos is not None and doc_index.heading_positions:
-            idx = bisect_left(doc_index.heading_positions, link_pos) - 1
-            if idx >= 0:
-                return doc_index.headings[idx].text
-        return ""
-    for heading in link.find_all_previous(_HEADING_TAGS):
-        if not isinstance(heading, Tag):
-            continue
-        text = _clean_heading_text(_extract_heading_text(heading))
-        if text:
-            return text
-    return ""
-
-
-def _is_structural_toc_link(
-    link: Tag, link_text: str | None = None, *, doc_index: _DocumentIndex | None = None
-) -> bool:
-    """Return True for TOC links that can map to actual section headings."""
-    if not _is_toc_context_link(link):
-        return False
-
-    previous_heading = _front_matter_heading_key(_previous_heading_text(link, doc_index=doc_index))
-    if previous_heading in _FRONT_MATTER_HEADINGS and previous_heading not in {
-        "contents",
-        "table of contents",
-    }:
-        return False
-
-    link_classes = {str(cls).lower() for cls in (link.get("class") or [])}
-    if "citation" in link_classes:
-        return False
-
-    paragraph = link.find_parent("p")
-    if paragraph is not None and _is_dense_chapter_index_paragraph(paragraph):
-        cleaned_link_text = _clean_heading_text(" ".join(link.get_text().split()))
-        chapter_marker = cleaned_link_text.rstrip(".,;:)")
-        if cleaned_link_text.lower().startswith("chapter") or _ROMAN_NUMERAL_RE.fullmatch(
-            chapter_marker
-        ):
-            return False
-
-    href = str(link.get("href", ""))
-    if href.startswith("#"):
-        target_id = href[1:].lower()
-        if target_id.startswith(("footnote", "citation")):
-            return False
-
-    if link.find_parent("span", class_="indexpageno"):
-        pass
-    if link.find_parent("span", class_="pagenum"):
-        return False
-
-    if link_text is None:
-        link_text = _clean_heading_text(" ".join(link.get_text().split()))
-    if not link_text:
-        return False
-    if _NUMERIC_LINK_TEXT_RE.fullmatch(link_text):
-        return False
-    # Filter front-matter headings (CONTENTS, ILLUSTRATIONS, etc.)
-    if _is_non_structural_heading_text(link_text):
-        return False
-    # Filter bare roman numerals (I, II, III — sub-section markers, not chapters)
-    return not _ROMAN_NUMERAL_RE.fullmatch(link_text)
-
-
-def _toc_entry_matches_heading(entry_text: str, heading_text: str) -> bool:
-    """Return True when a TOC entry label clearly aligns with a heading."""
-    if not entry_text:
-        return False
-    if _same_heading_text(entry_text, heading_text):
-        return True
-
-    entry_key = _heading_key(entry_text)
-    heading_key_val = _heading_key(heading_text)
-    if len(entry_key) < 6:
-        return False
-    return entry_key in heading_key_val or heading_key_val in entry_key
