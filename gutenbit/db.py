@@ -114,14 +114,14 @@ IngestStage = Literal["download", "chunk", "store", "delay", "done", "failed"]
 IngestProgressCallback = Callable[[IngestStage], None]
 
 
-def _normalize_div_segment(value: str) -> str:
+def normalize_div_segment(value: str) -> str:
     """Normalize a div path segment for stable matching."""
     cleaned = " ".join(value.split()).strip().casefold()
     cleaned = _DIV_PUNCT_SPACING_RE.sub(r"\1", cleaned)
     return _DIV_TRAILING_PUNCT_RE.sub("", cleaned).strip()
 
 
-def _div_parts_match(query: list[str], row: list[str]) -> bool:
+def div_parts_match(query: list[str], row: list[str]) -> bool:
     """Check if *query* segments match the leading segments of *row*.
 
     All segments except the deepest query segment require exact equality.
@@ -147,13 +147,13 @@ def _normalized_div_parts(div_path: str | None) -> list[str] | None:
     """Normalize a slash-delimited div path for stable matching."""
     if div_path is None:
         return None
-    return [_normalize_div_segment(part) for part in div_path.split("/") if part.strip()]
+    return [normalize_div_segment(part) for part in div_path.split("/") if part.strip()]
 
 
 def _row_div_parts(row: sqlite3.Row) -> list[str]:
     """Return normalized division segments from a row."""
     return [
-        _normalize_div_segment(part)
+        normalize_div_segment(part)
         for part in [row["div1"], row["div2"], row["div3"], row["div4"]]
         if part
     ]
@@ -479,7 +479,7 @@ class Database:
         ``"CHAPTER I DESCRIPTION OF A PALACE"``).  Trailing punctuation is
         always ignored.
         """
-        parts = [_normalize_div_segment(p) for p in div_path.split("/") if p.strip()]
+        parts = [normalize_div_segment(p) for p in div_path.split("/") if p.strip()]
         if len(parts) > 4:
             raise ValueError("div path has too many segments (max 4: div1/div2/div3/div4)")
 
@@ -492,11 +492,11 @@ class Database:
             if kinds and row["kind"] not in kinds:
                 continue
             row_parts = [
-                _normalize_div_segment(d)
+                normalize_div_segment(d)
                 for d in [row["div1"], row["div2"], row["div3"], row["div4"]]
                 if d
             ]
-            if parts and not _div_parts_match(parts, row_parts):
+            if parts and not div_parts_match(parts, row_parts):
                 continue
             out.append(_row_to_chunk_record(row))
             if limit > 0 and len(out) >= limit:
@@ -623,7 +623,7 @@ class Database:
 
         count = 0
         for row in rows:
-            if _div_parts_match(div_parts, _row_div_parts(row)):
+            if div_parts_match(div_parts, _row_div_parts(row)):
                 count += 1
         return count
 
@@ -691,7 +691,7 @@ class Database:
         items: list[SearchResult] = []
         total_results = 0
         for row in rows:
-            if not _div_parts_match(div_parts, _row_div_parts(row)):
+            if not div_parts_match(div_parts, _row_div_parts(row)):
                 continue
             total_results += 1
             if len(items) < page_limit:
@@ -737,7 +737,7 @@ class Database:
 
         out: list[SearchResult] = []
         for row in rows:
-            if div_parts is not None and not _div_parts_match(div_parts, _row_div_parts(row)):
+            if div_parts is not None and not div_parts_match(div_parts, _row_div_parts(row)):
                 continue
             out.append(_row_to_search_result(row))
             if len(out) >= limit:
