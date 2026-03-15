@@ -289,16 +289,7 @@ def _respect_heading_rank_nesting(sections: list[_Section]) -> list[_Section]:
     if not changed:
         return sections
 
-    return [
-        _Section(
-            section.anchor_id,
-            section.heading_text,
-            new_levels[idx],
-            section.body_anchor,
-            section.heading_rank,
-        )
-        for idx, section in enumerate(sections)
-    ]
+    return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
 
 
 # ---------------------------------------------------------------------------
@@ -506,15 +497,7 @@ def _refine_toc_sections(
             if candidate_pos >= first_pos:
                 break
             if _FALLBACK_START_HEADING_RE.match(candidate.heading_text):
-                refined.append(
-                    _Section(
-                        candidate.anchor_id,
-                        candidate.heading_text,
-                        min(candidate.level, first_toc.level),
-                        candidate.body_anchor,
-                        candidate.heading_rank,
-                    )
-                )
+                refined.append(candidate._with_level(min(candidate.level, first_toc.level)))
                 added += 1
             heading_idx += 1
 
@@ -616,13 +599,7 @@ def _refined_candidate_section(
             allow_tail_title_like and _TAIL_SECTION_HEADING_RE.match(candidate.heading_text)
         ):
             return None
-        return _Section(
-            candidate.anchor_id,
-            candidate.heading_text,
-            _rank_relative_level(candidate, toc_section),
-            candidate.body_anchor,
-            candidate.heading_rank,
-        )
+        return candidate._with_level(_rank_relative_level(candidate, toc_section))
 
     if not _is_refinement_heading(candidate.heading_text):
         return None
@@ -698,16 +675,7 @@ def _normalize_collection_titles(sections: list[_Section]) -> list[_Section]:
             for section_idx in range(idx + 1, next_idx):
                 new_levels[section_idx] += 1
 
-    return [
-        _Section(
-            section.anchor_id,
-            section.heading_text,
-            new_levels[idx],
-            section.body_anchor,
-            section.heading_rank,
-        )
-        for idx, section in enumerate(sections)
-    ]
+    return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
 
 
 def _nest_broad_subdivisions(sections: list[_Section]) -> list[_Section]:
@@ -754,16 +722,7 @@ def _nest_broad_subdivisions(sections: list[_Section]) -> list[_Section]:
     if not changed:
         return sections
 
-    return [
-        _Section(
-            section.anchor_id,
-            section.heading_text,
-            new_levels[idx],
-            section.body_anchor,
-            section.heading_rank,
-        )
-        for idx, section in enumerate(sections)
-    ]
+    return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
 
 
 def _promote_more_prominent_heading_runs(sections: list[_Section]) -> list[_Section]:
@@ -818,16 +777,7 @@ def _promote_more_prominent_heading_runs(sections: list[_Section]) -> list[_Sect
     if not changed:
         return sections
 
-    return [
-        _Section(
-            section.anchor_id,
-            section.heading_text,
-            new_levels[idx],
-            section.body_anchor,
-            section.heading_rank,
-        )
-        for idx, section in enumerate(sections)
-    ]
+    return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
 
 
 # ---------------------------------------------------------------------------

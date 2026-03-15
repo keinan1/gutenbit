@@ -111,16 +111,7 @@ def chunk_html(html: str) -> list[Chunk]:
     # e.g. chapter-only books (min_level=2) shift chapters to div1.
     min_level = min(s.level for s in sections)
     if min_level > 1:
-        sections = [
-            _Section(
-                s.anchor_id,
-                s.heading_text,
-                s.level - min_level + 1,
-                s.body_anchor,
-                s.heading_rank,
-            )
-            for s in sections
-        ]
+        sections = [s._with_level(s.level - min_level + 1) for s in sections]
 
     chunks: list[Chunk] = []
     pos = 0

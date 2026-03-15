@@ -185,6 +185,10 @@ class _Section:
     body_anchor: Tag
     heading_rank: int | None
 
+    def _with_level(self, level: int) -> _Section:
+        """Return a copy with only the level changed."""
+        return _Section(self.anchor_id, self.heading_text, level, self.body_anchor, self.heading_rank)
+
 
 @dataclass(frozen=True, slots=True)
 class _ContentBounds:
