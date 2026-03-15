@@ -2494,7 +2494,7 @@ def test_books_update_rejects_delay_without_update(tmp_path):
 
     code, out, _err = _run_cli(db_path, "books", "--delay", "0")
     assert code == 1
-    assert "--delay can only be used with --update." in out
+    assert "--delay can only be used with --refresh." in out
 
 
 def test_books_update_rejects_force_without_update(tmp_path):
@@ -2504,7 +2504,7 @@ def test_books_update_rejects_force_without_update(tmp_path):
 
     code, out, _err = _run_cli(db_path, "books", "--force")
     assert code == 1
-    assert "--force can only be used with --update." in out
+    assert "--force can only be used with --refresh." in out
 
 
 def test_books_update_rejects_dry_run_without_update(tmp_path):
@@ -2514,13 +2514,13 @@ def test_books_update_rejects_dry_run_without_update(tmp_path):
 
     code, out, _err = _run_cli(db_path, "books", "--dry-run")
     assert code == 1
-    assert "--dry-run can only be used with --update." in out
+    assert "--dry-run can only be used with --refresh." in out
 
 
 def test_books_update_empty_db(tmp_path):
     db_path = tmp_path / "empty.db"
 
-    code, out, _err = _run_cli(db_path, "books", "--update")
+    code, out, _err = _run_cli(db_path, "books", "--refresh")
     assert code == 0
     assert "No books stored yet" in out
 
@@ -2535,7 +2535,7 @@ def test_books_update_noop_when_all_current(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Database, "_ingest_book", _ingest_should_not_run)
 
-    code, out, _err = _run_cli(db_path, "books", "--update")
+    code, out, _err = _run_cli(db_path, "books", "--refresh")
     assert code == 0
     assert "All 2 stored book(s) are current." in out
 
@@ -2558,7 +2558,7 @@ def test_books_update_reprocesses_only_stale_books(tmp_path, monkeypatch):
 
     monkeypatch.setattr("gutenbit.db.download_html", _fake_download)
 
-    code, out, _err = _run_cli(db_path, "books", "--update", "--delay", "0")
+    code, out, _err = _run_cli(db_path, "books", "--refresh", "--delay", "0")
     assert code == 0
     assert "processing 1: Moby Dick (chunker updated)" in out
     assert "processing 2:" not in out
@@ -2578,7 +2578,7 @@ def test_books_update_force_reprocesses_all_books(tmp_path, monkeypatch):
 
     monkeypatch.setattr("gutenbit.db.download_html", _fake_download)
 
-    code, out, _err = _run_cli(db_path, "books", "--update", "--force", "--delay", "0")
+    code, out, _err = _run_cli(db_path, "books", "--refresh", "--force", "--delay", "0")
     assert code == 0
     assert "processing 1: Moby Dick (forced)" in out
     assert "processing 2: Pride and Prejudice (forced)" in out
@@ -2600,7 +2600,7 @@ def test_books_update_dry_run_does_not_ingest(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Database, "_ingest_book", _ingest_should_not_run)
 
-    code, out, _err = _run_cli(db_path, "books", "--update", "--dry-run")
+    code, out, _err = _run_cli(db_path, "books", "--refresh", "--dry-run")
     assert code == 0
     assert "Would reprocess 1 of 2 stored book(s):" in out
     assert "1: Moby Dick" in out
@@ -2621,12 +2621,12 @@ def test_books_update_json_output(tmp_path, monkeypatch):
 
     monkeypatch.setattr("gutenbit.db.download_html", _fake_download)
 
-    code, out, _err = _run_cli(db_path, "books", "--update", "--delay", "0", "--json")
+    code, out, _err = _run_cli(db_path, "books", "--refresh", "--delay", "0", "--json")
     assert code == 0
     payload = json.loads(out)
     assert payload["ok"] is True
     assert payload["command"] == "books"
-    assert payload["data"]["action"] == "update"
+    assert payload["data"]["action"] == "refresh"
     assert payload["data"]["counts"]["stored"] == 2
     assert payload["data"]["counts"]["selected"] == 1
     assert payload["data"]["counts"]["updated"] == 1
@@ -2635,6 +2635,36 @@ def test_books_update_json_output(tmp_path, monkeypatch):
     assert payload["data"]["results"] == [
         {"book_id": 1, "title": "Moby Dick", "status": "reprocessed"}
     ]
+
+
+def test_books_refresh_specific_ids(tmp_path, monkeypatch):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    seen_downloads: list[int] = []
+
+    def _fake_download(book_id: int) -> str:
+        seen_downloads.append(book_id)
+        return {1: _BOOK_HTML, 2: _BOOK2_HTML}[book_id]
+
+    monkeypatch.setattr("gutenbit.db.download_html", _fake_download)
+
+    code, out, _err = _run_cli(db_path, "books", "--refresh", "--delay", "0", "1")
+    assert code == 0
+    assert "processing 1: Moby Dick" in out
+    assert "processing 2:" not in out
+    assert seen_downloads == [1]
+
+
+def test_books_ids_rejected_without_refresh(tmp_path):
+    db = _make_db(tmp_path)
+    db_path = db.path
+    db.close()
+
+    code, out, _err = _run_cli(db_path, "books", "1")
+    assert code == 1
+    assert "Book IDs can only be used with --refresh." in out
 
 
 # ------------------------------------------------------------------

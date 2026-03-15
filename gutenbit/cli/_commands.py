@@ -183,13 +183,14 @@ def _process_books_for_ingest(
 @click.command(
     "catalog",
     help="search the Project Gutenberg catalog",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit catalog --author Tolstoy
   gutenbit catalog --title "War and Peace"
   gutenbit catalog --author Dickens --refresh
   gutenbit catalog --language en --subject Philosophy --limit 50
 
+\b
 output columns:  ID  AUTHORS  TITLE
 all filters use case-insensitive substring matching (AND logic).""",
 )
@@ -261,7 +262,7 @@ def _cmd_catalog(
 @click.command(
     "add",
     help="download and store books by PG id",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit add 2600                     # War and Peace
   gutenbit add 46 730 967               # multiple books
@@ -438,61 +439,72 @@ def _cmd_add(
 
 @click.command(
     "books",
-    help="list or update books stored in the database",
-    epilog="""
+    help="list or refresh books stored in the database",
+    epilog="""\b
 examples:
   gutenbit books
   gutenbit books --json
-  gutenbit books --update
-  gutenbit books --update --force
+  gutenbit books --refresh
+  gutenbit books --refresh --force
+  gutenbit books --refresh 2600       # refresh a specific book
+  gutenbit books --refresh 2600 1342  # refresh specific books
   gutenbit books --db my.db
 
+\b
 output columns:  ID  AUTHORS  TITLE""",
 )
+@click.argument("book_ids", nargs=-1, type=int, required=False)
 @click.option(
-    "--update", is_flag=True, help="reprocess stored books whose parser version is stale"
+    "--refresh", is_flag=True, help="reprocess stored books whose parser version is stale"
 )
 @click.option(
     "--delay",
     type=float,
     default=DEFAULT_DOWNLOAD_DELAY,
-    help="seconds between downloads in update mode (default: %(default)s)",
+    help="seconds between downloads in refresh mode (default: %(default)s)",
 )
 @click.option(
     "--force",
     is_flag=True,
-    help="reprocess all stored books in update mode, even if already current",
+    help="reprocess all stored books in refresh mode, even if already current",
 )
 @click.option(
     "--dry-run",
     is_flag=True,
-    help="show which stored books would be updated without downloading",
+    help="show which stored books would be refreshed without downloading",
 )
 @_common_options
 def _cmd_books(
     env: _CommandEnv,
-    update: bool,
+    book_ids: tuple[int, ...],
+    refresh: bool,
     delay: float,
     force: bool,
     dry_run: bool,
 ) -> int:
-    if not update:
+    if book_ids and not refresh:
+        return _command_error(
+            "books",
+            "Book IDs can only be used with --refresh.",
+            as_json=env.as_json,
+        )
+    if not refresh:
         if delay != DEFAULT_DOWNLOAD_DELAY:
             return _command_error(
                 "books",
-                "--delay can only be used with --update.",
+                "--delay can only be used with --refresh.",
                 as_json=env.as_json,
             )
         if force:
             return _command_error(
                 "books",
-                "--force can only be used with --update.",
+                "--force can only be used with --refresh.",
                 as_json=env.as_json,
             )
         if dry_run:
             return _command_error(
                 "books",
-                "--dry-run can only be used with --update.",
+                "--dry-run can only be used with --refresh.",
                 as_json=env.as_json,
             )
     elif delay < 0:
@@ -500,13 +512,24 @@ def _cmd_books(
 
     with Database(env.db_path) as db_conn:
         books = db_conn.books()
-        if update:
+        if refresh:
             db_path = str(_resolved_cli_path(env.db_path))
             db_display_path = _display_cli_path(env.db_path)
             stored_count = len(books)
-            selected_books = books if force else db_conn.stale_books()
-            selected_count = len(selected_books)
-            skipped_current = 0 if force else stored_count - selected_count
+            if book_ids:
+                books_by_id = {b.id: b for b in books}
+                selected_books = [books_by_id[bid] for bid in book_ids if bid in books_by_id]
+                missing_ids = [bid for bid in book_ids if bid not in books_by_id]
+                for mid in missing_ids:
+                    warning = f"Book {mid} is not in the database."
+                    if not env.as_json:
+                        env.display.warning(f"warning: {warning}")
+                selected_count = len(selected_books)
+                skipped_current = stored_count - selected_count
+            else:
+                selected_books = books if force else db_conn.stale_books()
+                selected_count = len(selected_books)
+                skipped_current = 0 if force else stored_count - selected_count
 
             if not books:
                 if env.as_json:
@@ -514,7 +537,7 @@ def _cmd_books(
                         "books",
                         ok=True,
                         data={
-                            "action": "update",
+                            "action": "refresh",
                             "db": db_path,
                             "delay_seconds": delay,
                             "force": force,
@@ -549,7 +572,7 @@ def _cmd_books(
                         "books",
                         ok=True,
                         data={
-                            "action": "update",
+                            "action": "refresh",
                             "db": db_path,
                             "delay_seconds": delay,
                             "force": force,
@@ -584,7 +607,7 @@ def _cmd_books(
                         "books",
                         ok=True,
                         data={
-                            "action": "update",
+                            "action": "refresh",
                             "db": db_path,
                             "delay_seconds": delay,
                             "force": force,
@@ -610,14 +633,15 @@ def _cmd_books(
             if not env.as_json:
                 env.display.status(f"Checking {stored_count} stored book(s)...")
 
+            effective_force = force or bool(book_ids)
             statuses, errors = _process_books_for_ingest(
                 db_conn,
                 selected_books,
                 delay=delay,
                 as_json=env.as_json,
                 display=env.display,
-                failure_action="update",
-                force=force,
+                failure_action="refresh",
+                force=effective_force,
                 show_skipped_current=False,
             )
             updated_count = sum(
@@ -638,7 +662,7 @@ def _cmd_books(
                     "books",
                     ok=failed_count == 0,
                     data={
-                        "action": "update",
+                        "action": "refresh",
                         "db": db_path,
                         "delay_seconds": delay,
                         "force": force,
@@ -701,12 +725,13 @@ def _cmd_books(
 @click.command(
     "remove",
     help="remove stored books by PG id",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit remove 46
   gutenbit remove 46 730 967
   gutenbit remove 2600 --db my.db
 
+\b
 if a book ID is not present, a warning is printed and exit code is 1.""",
 )
 @click.argument("book_ids", nargs=-1, type=int, metavar="BOOK_ID")
@@ -775,7 +800,7 @@ def _parse_book_ids(
 @click.command(
     "search",
     help="full-text search across stored books",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit search "bennet"                                  # simple search
   gutenbit search "don't stop"                              # punctuation is ok
@@ -794,19 +819,19 @@ examples:
   gutenbit search "bennet" --book 1342 --count              # just show match count
   gutenbit search "bennet" --book 1342 --json               # JSON output
 
-
+\b
 query modes:
   (default)  plain text — punctuation is auto-escaped, words are AND'd
   --phrase   exact phrase — word order and adjacency must match exactly
   --raw      FTS5 syntax — AND, OR, NOT, NEAR(), prefix*, "phrases", (groups)
 
-
+\b
 result order:
   rank    BM25 rank, then book, then position (default)
   first   book ascending, then position ascending
   last    book descending, then position descending
 
-
+\b
 tip: use 'gutenbit toc <id>' first to see a book's structure, then
      narrow searches with --book and --section. Search uses text chunks
      by default; use --kind heading or --kind all when needed.""",
@@ -1129,16 +1154,16 @@ def _cmd_search(
 @click.command(
     "toc",
     help="show structural table of contents for a book",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit toc 2600
   gutenbit toc 100 --expand all
   gutenbit toc 2600 --json
 
-
+\b
 if the book is missing, `toc` adds it automatically before rendering.
 
-
+\b
 section numbers in this output can be passed to:
   gutenbit view 2600 --section <NUMBER>""",
 )
@@ -1205,7 +1230,7 @@ def _cmd_toc(
 @click.command(
     "view",
     help="read stored book text, or focused parts of it",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit toc 1342                                  # inspect structure first
   gutenbit view 1342                                 # first structural section + quick actions
@@ -1219,7 +1244,7 @@ examples:
   gutenbit view 1342 --position 1 --radius 1         # surrounding passage around position
   gutenbit view 1342 --section "Chapter 1" --forward 5 --json
 
-
+\b
 selectors (choose at most one):
   --position <n> | --section <SECTION_SELECTOR>
 """,
