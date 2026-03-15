@@ -183,13 +183,14 @@ def _process_books_for_ingest(
 @click.command(
     "catalog",
     help="search the Project Gutenberg catalog",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit catalog --author Tolstoy
   gutenbit catalog --title "War and Peace"
   gutenbit catalog --author Dickens --refresh
   gutenbit catalog --language en --subject Philosophy --limit 50
 
+\b
 output columns:  ID  AUTHORS  TITLE
 all filters use case-insensitive substring matching (AND logic).""",
 )
@@ -261,7 +262,7 @@ def _cmd_catalog(
 @click.command(
     "add",
     help="download and store books by PG id",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit add 2600                     # War and Peace
   gutenbit add 46 730 967               # multiple books
@@ -439,7 +440,7 @@ def _cmd_add(
 @click.command(
     "books",
     help="list or refresh books stored in the database",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit books
   gutenbit books --json
@@ -449,6 +450,7 @@ examples:
   gutenbit books --refresh 2600 1342  # refresh specific books
   gutenbit books --db my.db
 
+\b
 output columns:  ID  AUTHORS  TITLE""",
 )
 @click.argument("book_ids", nargs=-1, type=int, required=False)
@@ -723,12 +725,13 @@ def _cmd_books(
 @click.command(
     "remove",
     help="remove stored books by PG id",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit remove 46
   gutenbit remove 46 730 967
   gutenbit remove 2600 --db my.db
 
+\b
 if a book ID is not present, a warning is printed and exit code is 1.""",
 )
 @click.argument("book_ids", nargs=-1, type=int, metavar="BOOK_ID")
@@ -797,7 +800,7 @@ def _parse_book_ids(
 @click.command(
     "search",
     help="full-text search across stored books",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit search "bennet"                                  # simple search
   gutenbit search "don't stop"                              # punctuation is ok
@@ -816,19 +819,19 @@ examples:
   gutenbit search "bennet" --book 1342 --count              # just show match count
   gutenbit search "bennet" --book 1342 --json               # JSON output
 
-
+\b
 query modes:
   (default)  plain text — punctuation is auto-escaped, words are AND'd
   --phrase   exact phrase — word order and adjacency must match exactly
   --raw      FTS5 syntax — AND, OR, NOT, NEAR(), prefix*, "phrases", (groups)
 
-
+\b
 result order:
   rank    BM25 rank, then book, then position (default)
   first   book ascending, then position ascending
   last    book descending, then position descending
 
-
+\b
 tip: use 'gutenbit toc <id>' first to see a book's structure, then
      narrow searches with --book and --section. Search uses text chunks
      by default; use --kind heading or --kind all when needed.""",
@@ -1151,16 +1154,16 @@ def _cmd_search(
 @click.command(
     "toc",
     help="show structural table of contents for a book",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit toc 2600
   gutenbit toc 100 --expand all
   gutenbit toc 2600 --json
 
-
+\b
 if the book is missing, `toc` adds it automatically before rendering.
 
-
+\b
 section numbers in this output can be passed to:
   gutenbit view 2600 --section <NUMBER>""",
 )
@@ -1227,7 +1230,7 @@ def _cmd_toc(
 @click.command(
     "view",
     help="read stored book text, or focused parts of it",
-    epilog="""
+    epilog="""\b
 examples:
   gutenbit toc 1342                                  # inspect structure first
   gutenbit view 1342                                 # first structural section + quick actions
@@ -1241,7 +1244,7 @@ examples:
   gutenbit view 1342 --position 1 --radius 1         # surrounding passage around position
   gutenbit view 1342 --section "Chapter 1" --forward 5 --json
 
-
+\b
 selectors (choose at most one):
   --position <n> | --section <SECTION_SELECTOR>
 """,
