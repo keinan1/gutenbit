@@ -37,6 +37,23 @@ from gutenbit._cli_helpers import (  # noqa: F401
 from gutenbit._cli_sections import _build_section_summary  # noqa: F401
 from gutenbit.catalog import Catalog as Catalog  # noqa: F401
 
+__all__ = [
+    "Catalog",
+    "DEFAULT_DB",
+    "_CONTEXT_SETTINGS",
+    "_DB_HELP",
+    "_VERBOSE_HELP",
+    "_build_section_summary",
+    "_cli",
+    "_display",
+    "_display_cli_path",
+    "_entry_point",
+    "_passage_payload",
+    "_print_json_envelope",
+    "_select_section_opening_line",
+    "main",
+]
+
 # ---------------------------------------------------------------------------
 # CLI epilog
 # ---------------------------------------------------------------------------

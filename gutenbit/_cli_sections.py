@@ -32,8 +32,8 @@ from gutenbit.db import (
     ChunkRecord,
     Database,
     TextState,
-    _div_parts_match,
-    _normalize_div_segment,
+    div_parts_match,
+    normalize_div_segment,
 )
 from gutenbit.display import CliDisplay
 
@@ -43,7 +43,7 @@ from gutenbit.display import CliDisplay
 
 
 def _section_selector_parts(raw: str) -> list[str]:
-    parts = [_normalize_div_segment(part) for part in raw.split("/") if part.strip()]
+    parts = [normalize_div_segment(part) for part in raw.split("/") if part.strip()]
     if len(parts) > 4:
         raise ValueError("div path has too many segments (max 4: div1/div2/div3/div4)")
     return parts
@@ -61,7 +61,7 @@ def _canonical_section_match(
         section_path = str(section["section"]).strip()
         if not section_path:
             continue
-        if _div_parts_match(query_parts, _section_selector_parts(section_path)):
+        if div_parts_match(query_parts, _section_selector_parts(section_path)):
             return section_path, int(section["section_number"])
     return None
 
