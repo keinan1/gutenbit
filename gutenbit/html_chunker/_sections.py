@@ -1052,8 +1052,6 @@ def _is_structural_toc_link(
         if target_id.startswith(("footnote", "citation")):
             return False
 
-    if link.find_parent("span", class_="indexpageno"):
-        pass
     if link.find_parent("span", class_="pagenum"):
         return False
 
