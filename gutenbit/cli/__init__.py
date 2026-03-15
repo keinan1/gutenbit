@@ -9,7 +9,6 @@ from importlib.metadata import version as package_version
 
 import click
 
-from gutenbit.catalog import Catalog as Catalog  # noqa: F401
 from gutenbit.cli._commands import (
     _cmd_add,
     _cmd_books,
@@ -24,6 +23,7 @@ from gutenbit.cli._commands import (
 # Re-exports: these names are imported by tests and other consumers from
 # gutenbit.cli — keep them accessible here.
 # ---------------------------------------------------------------------------
+from gutenbit.catalog import Catalog as Catalog  # noqa: F401
 from gutenbit.cli._context import (  # noqa: F401
     _CONTEXT_SETTINGS,
     _DB_HELP,

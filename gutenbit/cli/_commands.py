@@ -11,6 +11,7 @@ import click
 from gutenbit.catalog import BookRecord
 from gutenbit.cli._context import (
     _CommandEnv,
+    _command_error,
     _common_options,
     _display_cli_path,
     _load_catalog,
@@ -20,7 +21,6 @@ from gutenbit.cli._display import CliDisplay, format_summary_stats
 from gutenbit.cli._json import (
     JSON_BOOK_ID_KEY,
     _book_payload,
-    _command_error,
     _joined_chunk_text,
     _json_search_filters,
     _passage_payload,

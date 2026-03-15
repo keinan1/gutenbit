@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from gutenbit.cli._context import _display
 from gutenbit.cli._text_utils import _single_line
+
+if TYPE_CHECKING:
+    from gutenbit.db import ChunkRecord
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -51,23 +53,6 @@ def _print_json_envelope(
             indent=2,
         )
     )
-
-
-def _command_error(
-    command: str,
-    message: str,
-    *,
-    as_json: bool,
-    display_message: str | None = None,
-    code: int = 1,
-    data: dict[str, Any] | list[Any] | None = None,
-    warnings: list[str] | None = None,
-) -> int:
-    if as_json:
-        _print_json_envelope(command, ok=False, data=data, warnings=warnings, errors=[message])
-    else:
-        _display().error(display_message or message)
-    return code
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +123,6 @@ def _passage_payload(
 
 
 def _joined_chunk_text(
-    rows: list[Any],
+    rows: list[ChunkRecord],
 ) -> str:
     return "\n\n".join(row.content for row in rows)

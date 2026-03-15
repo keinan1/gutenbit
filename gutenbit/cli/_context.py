@@ -196,3 +196,27 @@ def _resolve_db(ctx: click.Context, db: str | None) -> str:
 def _resolve_verbose(ctx: click.Context, verbose: bool) -> bool:
     """Return effective verbose flag: either source activates it."""
     return verbose or ctx.obj.get("verbose", False)
+
+
+# ---------------------------------------------------------------------------
+# Command error helper
+# ---------------------------------------------------------------------------
+
+
+def _command_error(
+    command: str,
+    message: str,
+    *,
+    as_json: bool,
+    display_message: str | None = None,
+    code: int = 1,
+    data: dict[str, Any] | list[Any] | None = None,
+    warnings: list[str] | None = None,
+) -> int:
+    from gutenbit.cli._json import _print_json_envelope
+
+    if as_json:
+        _print_json_envelope(command, ok=False, data=data, warnings=warnings, errors=[message])
+    else:
+        _display().error(display_message or message)
+    return code
