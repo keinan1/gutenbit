@@ -23,12 +23,10 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-from gutenbit._text_utils import (
+from gutenbit.cli._text_utils import (
     _format_int,
     _indent_block,
-    _preview,
     _single_line,
-    _split_semicolon_list,
     _summarize_semicolon_list,
 )
 
