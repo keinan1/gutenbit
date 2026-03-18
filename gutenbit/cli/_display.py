@@ -49,6 +49,8 @@ TOC_OPENING_PREVIEW_CHARS = 56
 TOC_SECTION_MAX_CHARS = 72
 TOC_OVERVIEW_LIST_MAX_ITEMS = 7
 FOOTER_TITLE_MAX_CHARS = 32
+BOOK_LIST_COLUMN_MAX_CHARS = 40
+BOOK_LIST_SUMMARY_MAX_ITEMS = 2
 EMPTY_DISPLAY = "-"
 BOOK_ID_LABEL = "Book ID"
 GUTENBERG_ID_LABEL = "Gutenberg ID"
@@ -673,12 +675,12 @@ class CliDisplay:
         if self.interactive:
             table = Table(box=box.SIMPLE_HEAD, header_style="muted", pad_edge=False)
             table.add_column("ID", justify="right", style="accent", no_wrap=True)
-            table.add_column("Authors", max_width=40)
+            table.add_column("Authors", max_width=BOOK_LIST_COLUMN_MAX_CHARS)
             table.add_column("Title", style="title")
-            table.add_column("Subjects", max_width=40)
+            table.add_column("Subjects", max_width=BOOK_LIST_COLUMN_MAX_CHARS)
             for book in books:
-                authors = _summarize_semicolon_list(book.authors, max_items=2)[:40]
-                subjects = _summarize_semicolon_list(book.subjects, max_items=2)[:40]
+                authors = _summarize_semicolon_list(book.authors, max_items=BOOK_LIST_SUMMARY_MAX_ITEMS)[:BOOK_LIST_COLUMN_MAX_CHARS]
+                subjects = _summarize_semicolon_list(book.subjects, max_items=BOOK_LIST_SUMMARY_MAX_ITEMS)[:BOOK_LIST_COLUMN_MAX_CHARS]
                 id_text = Text(str(book.id))
                 id_text.stylize(f"link {gutenberg_book_url(book.id)}")
                 table.add_row(
@@ -691,21 +693,22 @@ class CliDisplay:
             if footer:
                 self._out.print(Text(footer, style="muted"))
         else:
+            w = BOOK_LIST_COLUMN_MAX_CHARS
+            sep = "-" * w
             print(
-                f"  {'ID':>6}  {'AUTHORS':<40s}  {'TITLE':<40s}  SUBJECTS",
+                f"  {'ID':>6}  {'AUTHORS':<{w}s}  {'TITLE':<{w}s}  SUBJECTS",
                 file=self.stdout,
             )
             print(
-                f"  {'------':>6}  {'----------------------------------------':<40s}"
-                f"  {'----------------------------------------':<40s}  --------",
+                f"  {'------':>6}  {sep:<{w}s}  {sep:<{w}s}  --------",
                 file=self.stdout,
             )
             for book in books:
-                authors = _summarize_semicolon_list(book.authors, max_items=2)[:40]
-                subjects = _summarize_semicolon_list(book.subjects, max_items=2)[:40]
+                authors = _summarize_semicolon_list(book.authors, max_items=BOOK_LIST_SUMMARY_MAX_ITEMS)[:w]
+                subjects = _summarize_semicolon_list(book.subjects, max_items=BOOK_LIST_SUMMARY_MAX_ITEMS)[:w]
                 title = _single_line(book.title)
                 print(
-                    f"  {book.id:>6}  {authors:<40s}  {title:<40s}  {subjects}",
+                    f"  {book.id:>6}  {authors:<{w}s}  {title:<{w}s}  {subjects}",
                     file=self.stdout,
                 )
             if footer:
