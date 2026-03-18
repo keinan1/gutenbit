@@ -7,7 +7,6 @@ from typing import Any, cast
 from gutenbit.cli._context import _display, _load_catalog
 from gutenbit.cli._display import CliDisplay
 from gutenbit.cli._json import JSON_OPENING_LINE_PREVIEW_CHARS
-from gutenbit.download import gutenberg_book_url
 from gutenbit.cli._query import (
     DEFAULT_DOWNLOAD_DELAY,
     OPENING_PREVIEW_PARAGRAPH_LIMIT,
@@ -39,6 +38,7 @@ from gutenbit.db import (
     _normalized_div_parts,
     div_parts_match,
 )
+from gutenbit.download import gutenberg_book_url
 
 # ---------------------------------------------------------------------------
 # Read time estimation

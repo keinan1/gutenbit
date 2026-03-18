@@ -43,7 +43,7 @@ def get_last_download_source() -> str | None:
 def describe_download_source(source: str | None) -> str | None:
     if source in {ALEPH_PGLAF_HOST, GUTENBERG_PGLAF_HOST}:
         return "official mirror"
-    if source == "www.gutenberg.org":
+    if source == GUTENBERG_CANONICAL_HOST:
         return "main site fallback"
     return None
 
