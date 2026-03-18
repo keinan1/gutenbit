@@ -7,6 +7,7 @@ from typing import Any, cast
 from gutenbit.cli._context import _display, _load_catalog
 from gutenbit.cli._display import CliDisplay
 from gutenbit.cli._json import JSON_OPENING_LINE_PREVIEW_CHARS
+from gutenbit.download import gutenberg_book_url
 from gutenbit.cli._query import (
     DEFAULT_DOWNLOAD_DELAY,
     OPENING_PREVIEW_PARAGRAPH_LIMIT,
@@ -444,8 +445,10 @@ def _section_summary_json_payload(summary: _SectionSummary) -> dict[str, Any]:
         sec_json["opening_line"] = _preview(sec["opening_line"], JSON_OPENING_LINE_PREVIEW_CHARS)
         json_sections.append(sec_json)
 
+    book = dict(summary["book"])
+    book["link"] = gutenberg_book_url(book["id"])
     return {
-        "book": dict(summary["book"]),
+        "book": book,
         "overview": {
             **summary["overview"],
             "chunk_counts": dict(summary["overview"]["chunk_counts"]),

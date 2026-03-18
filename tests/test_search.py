@@ -1046,6 +1046,7 @@ def test_toc_default_json(tmp_path):
     assert summary["book"]["id"] == 1
     assert summary["book"]["title"] == "Moby Dick"
     assert summary["book"]["authors"] == "Melville, Herman"
+    assert summary["book"]["link"] == "https://www.gutenberg.org/cache/epub/1/pg1-images.html"
     assert summary["overview"]["sections_total"] == 2
     assert summary["overview"]["sections_shown"] == 2
     assert summary["overview"]["chunk_counts"]["heading"] == 2
