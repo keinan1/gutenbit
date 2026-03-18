@@ -702,7 +702,7 @@ class CliDisplay:
             for book in books:
                 authors = _summarize_semicolon_list(book.authors, max_items=2)[:40]
                 subjects = _summarize_semicolon_list(book.subjects, max_items=2)[:40]
-                title = _single_line(book.title)[:40]
+                title = _single_line(book.title)
                 print(
                     f"  {book.id:>6}  {authors:<40s}  {title:<40s}  {subjects}",
                     file=self.stdout,

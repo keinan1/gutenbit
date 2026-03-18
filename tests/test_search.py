@@ -2859,7 +2859,7 @@ def test_search_json_radius_output(tmp_path):
     payload = json.loads(out)
     data = payload["data"]
     result = data["items"][0]
-    assert list(result.keys())[:10] == [
+    assert list(result.keys())[:11] == [
         "book_id",
         "title",
         "author",
@@ -2869,11 +2869,13 @@ def test_search_json_radius_output(tmp_path):
         "forward",
         "radius",
         "all",
+        "link",
         "content",
     ]
     assert result["forward"] is None
     assert result["radius"] == 2
     assert result["all"] is None
+    assert result["link"] == "https://www.gutenberg.org/cache/epub/1/pg1-images.html"
     assert result["kind"] == "text"
     assert result["content"].startswith("CHAPTER 1")
     assert "Call me Ishmael" in result["content"]
@@ -3210,7 +3212,7 @@ def test_view_position_json_radius_output(tmp_path):
     assert code == 0
     payload = json.loads(out)
     data = payload["data"]
-    assert list(data.keys())[:10] == [
+    assert list(data.keys())[:11] == [
         "book_id",
         "title",
         "author",
@@ -3220,11 +3222,13 @@ def test_view_position_json_radius_output(tmp_path):
         "forward",
         "radius",
         "all",
+        "link",
         "content",
     ]
     assert data["forward"] is None
     assert data["radius"] == 1
     assert data["all"] is None
+    assert data["link"] == "https://www.gutenberg.org/cache/epub/1/pg1-images.html"
     assert "Call me Ishmael" in data["content"]
 
 
