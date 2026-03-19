@@ -315,6 +315,8 @@ def _paragraphs_in_range(
     for ip in p_index[lo:hi]:
         if ip.is_toc:
             continue
+        # id() is safe here: the same BeautifulSoup tree is alive for the
+        # entire chunk_html call, so Tag object identity is stable.
         if skip_tag_ids and id(ip.tag) in skip_tag_ids:
             continue
         if min_length and len(ip.text) < min_length:

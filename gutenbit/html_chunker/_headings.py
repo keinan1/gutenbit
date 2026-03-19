@@ -9,6 +9,7 @@ from collections.abc import Callable
 from bs4 import Tag
 
 from gutenbit.html_chunker._common import (
+    _BARE_HEADING_NUMBER_RE,
     _BRACKETED_NUMERIC_HEADING_RE,
     _BROAD_KEYWORDS,
     _BROAD_NESTING_DEPTHS,
@@ -218,7 +219,7 @@ def _classify_level(heading_text: str, is_emphasized_in_toc: bool) -> int:
             # Front-matter headings like "PREFACE TO THE FIRST VOLUME"
             # match "volume" as a broad keyword but are not structural
             # containers — demote to chapter level.
-            if _FRONT_MATTER_PREFIX_RE.match(heading_text):
+            if _is_front_matter_heading(heading_text):
                 return 2
             return 1
         if keyword == "section":
@@ -455,6 +456,47 @@ def _is_front_matter_attribution_heading(row: _HeadingRow) -> bool:
 def _is_standalone_front_matter_heading(heading_text: str) -> bool:
     """Return True for standalone front/back-matter headings like PREFACE."""
     return _STANDALONE_FRONT_MATTER_RE.match(heading_text) is not None
+
+
+def _is_front_matter_heading(heading_text: str) -> bool:
+    """Return True for any front/back-matter heading, standalone or with trailer.
+
+    Matches both bare ``PREFACE`` and ``PREFACE TO THE FIRST VOLUME``.
+    Use this when the heading should be excluded from structural container
+    roles (e.g. nesting chapters under it).
+    """
+    return (
+        _STANDALONE_FRONT_MATTER_RE.match(heading_text) is not None
+        or _FRONT_MATTER_PREFIX_RE.match(heading_text) is not None
+    )
+
+
+def _is_bare_keyword_heading(heading_text: str) -> bool:
+    """Return True for keyword+index headings with no trailing subtitle.
+
+    Matches headings like ``CHAPTER I``, ``CHAPTER THIRTY-SIX``, ``STAVE II``
+    but NOT ``CHAPTER I THE BEGINNING`` (which has a subtitle).
+    Reuses :func:`_heading_keyword` and :data:`_STRUCTURAL_INDEX_TOKEN_RE`
+    so the number-word vocabulary is defined in exactly one place.
+    """
+    keyword = _heading_keyword(heading_text)
+    if not keyword:
+        return False
+    if _BARE_HEADING_NUMBER_RE.fullmatch(heading_text):
+        return True
+    # Tokenize after the keyword, handling "THE" and hyphenated compounds
+    # like "THIRTY-SIX".
+    tokens = heading_text.split()
+    if len(tokens) < 2:
+        return False
+    idx = 1
+    if tokens[idx].upper() == "THE" and len(tokens) > idx + 1:
+        idx += 1
+    for token in tokens[idx:]:
+        for part in token.rstrip(".,;:!?").split("-"):
+            if part and not _STRUCTURAL_INDEX_TOKEN_RE.fullmatch(part):
+                return False
+    return True
 
 
 # ---------------------------------------------------------------------------

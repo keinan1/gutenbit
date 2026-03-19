@@ -2271,9 +2271,7 @@ def test_fallback_extends_backwards_to_peer_rank_headings():
 
     assert "PUBLIC LIFE OF MR. TULRUMBLE" in headings
     assert "FULL REPORT OF THE FIRST MEETING" in headings
-    assert "Section A.\u2014Zoology and Botany." in headings or any(
-        "Zoology" in h for h in headings
-    )
+    assert "Section A.\u2014Zoology and Botany." in headings
 
 
 def test_fallback_extends_backwards_to_same_rank_before_keyword_heading():
@@ -2406,7 +2404,8 @@ def test_preface_to_volume_not_broad_container():
 
     sec_i = [c for c in headings if c.content == "I"][0]
     # Section I should be at div1, not nested under a PREFACE
-    assert sec_i.div1 == "I" or (sec_i.div2 == "" and "PREFACE" not in sec_i.div1)
+    assert sec_i.div1 == "I"
+    assert sec_i.div2 == ""
 
 
 def test_non_keyword_headings_nest_chapters_by_rank():
