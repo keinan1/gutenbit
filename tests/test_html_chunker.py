@@ -2046,13 +2046,13 @@ def test_double_quote_heading_rejected_as_refinement_candidate():
 def test_publication_metadata_headings_excluded():
     """'Printed in...', 'Published...', 'Reprinted...' are metadata, not structure."""
     html = _make_html("""
-    <p class="toc"><a href="#essay1" class="pginternal">THE CONTAGIOUSNESS OF PUERPERAL FEVER</a></p>
-    <p class="toc"><a href="#essay2" class="pginternal">CURRENTS AND COUNTER-CURRENTS</a></p>
+    <p class="toc"><a href="#e1" class="pginternal">PUERPERAL FEVER</a></p>
+    <p class="toc"><a href="#e2" class="pginternal">COUNTER-CURRENTS</a></p>
 
-    <h2><a id="essay1"></a>THE CONTAGIOUSNESS OF PUERPERAL FEVER</h2>
-    <h4>Printed in 1843; reprinted with additions in 1855.</h4>
+    <h2><a id="e1"></a>PUERPERAL FEVER</h2>
+    <h4>Printed in 1843; reprinted in 1855.</h4>
     <p>Essay content here.</p>
-    <h2><a id="essay2"></a>CURRENTS AND COUNTER-CURRENTS</h2>
+    <h2><a id="e2"></a>COUNTER-CURRENTS</h2>
     <h4>Published in 1861.</h4>
     <p>Second essay content.</p>
     """)
@@ -2060,10 +2060,7 @@ def test_publication_metadata_headings_excluded():
     headings = [c for c in chunks if c.kind == "heading"]
     heading_texts = [h.content for h in headings]
 
-    assert heading_texts == [
-        "THE CONTAGIOUSNESS OF PUERPERAL FEVER",
-        "CURRENTS AND COUNTER-CURRENTS",
-    ]
+    assert heading_texts == ["PUERPERAL FEVER", "COUNTER-CURRENTS"]
     assert not any("Printed" in t or "Published" in t for t in heading_texts)
 
 
@@ -2099,11 +2096,11 @@ def test_verse_reference_headings_excluded():
 def test_sparse_toc_bypassed_for_richer_heading_scan():
     """When heading scan finds >3x more structure than a sparse TOC (<=5),
     prefer the heading scan."""
-    toc_links = ''.join(
+    toc_links = "".join(
         f'<p class="toc"><a href="#s{i}" class="pginternal">Section {i}</a></p>'
         for i in range(1, 3)  # only 2 TOC links
     )
-    body_headings = ''.join(
+    body_headings = "".join(
         f'<h2><a id="c{i}"></a>CANTO {i}.</h2>\n<p>Canto {i} content.</p>\n'
         for i in range(1, 11)  # 10 heading-scan sections
     )
@@ -2176,8 +2173,9 @@ def test_paragraph_section_fallback_not_used_when_headings_exist():
 
 def test_flat_paragraph_fallback_when_no_structure_detected():
     """Documents with >=10 paragraphs but no structure emit flat text chunks."""
-    paragraphs = ''.join(f'<p>Paragraph {i} with enough text to not be filtered.</p>\n'
-                         for i in range(1, 15))
+    paragraphs = "".join(
+        f"<p>Paragraph {i} with enough text to not be filtered.</p>\n" for i in range(1, 15)
+    )
     html = _make_html(paragraphs)
     chunks = chunk_html(html)
 
@@ -2188,7 +2186,7 @@ def test_flat_paragraph_fallback_when_no_structure_detected():
 
 def test_flat_paragraph_fallback_not_triggered_for_few_paragraphs():
     """Documents with fewer than 10 paragraphs and no structure return empty."""
-    paragraphs = ''.join(f'<p>Short paragraph {i}.</p>\n' for i in range(1, 5))
+    paragraphs = "".join(f"<p>Short paragraph {i}.</p>\n" for i in range(1, 5))
     html = _make_html(paragraphs)
     chunks = chunk_html(html)
 

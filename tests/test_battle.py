@@ -1118,13 +1118,10 @@ def test_beowulf_merges_canto_pairs_and_captures_verse_content():
 
 
 def test_leviathan_refines_ch_xlvii_subsections_despite_same_rank():
-    """PG 3207 — Ch XLVII is h3 (unlike h2 for other chapters) but its h3 subsections should still refine."""
+    """PG 3207 — Ch XLVII is h3 (not h2) but its subsections should still refine."""
     headings = _headings(3207)
 
-    ch47_subs = [
-        h for h in headings
-        if "XLVII" in h.div2 and h.div3
-    ]
+    ch47_subs = [h for h in headings if "XLVII" in h.div2 and h.div3]
     assert len(ch47_subs) >= 15
 
     first_sub = ch47_subs[0]
