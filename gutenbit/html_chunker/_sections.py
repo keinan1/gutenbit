@@ -85,6 +85,16 @@ _TAIL_SECTION_HEADING_RE = re.compile(
     r"author'?s?\s+endnotes?\b)",
     re.IGNORECASE,
 )
+# Headings after the last TOC entry that mark apparatus (appendices,
+# notes on the text).  Once one of these is added during refinement,
+# further body headings are not promoted to standalone sections.
+# NOTE: This is intentionally broad — it may match non-apparatus headings
+# like "Notes on the Author" in edge cases.  If that causes mis-truncation,
+# add a position-relative guard (e.g. only trigger past the last TOC entry).
+_REFINEMENT_STOP_HEADING_RE = re.compile(
+    r"^(?:appendix|notes\s+on\b)",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # TOC parsing
@@ -187,6 +197,15 @@ def _parse_toc_sections(
         )
 
     sections.sort(key=lambda section: tag_positions.get(id(section.body_anchor), float("inf")))
+
+    # Truncate after an apparatus heading (APPENDIX, NOTES ON...): keep the
+    # apparatus heading itself but drop everything after it so commentary
+    # text stays flat under that one section.
+    for trim_idx, section in enumerate(sections):
+        if _REFINEMENT_STOP_HEADING_RE.match(section.heading_text):
+            sections = sections[: trim_idx + 1]
+            break
+
     # Remove a leading title section whose heading is a prefix of the next section's
     # heading (e.g. "ADVENTURES OF SHERLOCK HOLMES" before "ADVENTURES OF SHERLOCK
     # HOLMES A SCANDAL IN BOHEMIA"). Require a space after the prefix to avoid
@@ -511,6 +530,10 @@ def _refine_toc_sections(
 
     for toc_idx, toc_section in enumerate(toc_sections):
         refined.append(toc_section)
+        # When the TOC section is an apparatus heading (APPENDIX, NOTES ON...),
+        # do not refine it — its content is commentary, not structural sections.
+        if _REFINEMENT_STOP_HEADING_RE.match(toc_section.heading_text):
+            continue
         start_pos = _tag_position(toc_section.body_anchor, tag_positions)
         if start_pos is None:
             continue
@@ -546,6 +569,14 @@ def _refine_toc_sections(
             if refined_candidate is not None:
                 refined.append(refined_candidate)
                 added += 1
+                # After an apparatus heading past the last TOC entry,
+                # stop adding further body headings so commentary
+                # stays flat under that heading.
+                if next_pos is None and _REFINEMENT_STOP_HEADING_RE.match(
+                    refined_candidate.heading_text
+                ):
+                    scan_idx += 1
+                    break
             scan_idx += 1
 
         heading_idx = scan_idx
