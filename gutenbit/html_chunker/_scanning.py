@@ -403,10 +403,12 @@ def _is_single_link_structural_toc_paragraph(
     if residue is None:
         residue = _container_residue_without_link_text(paragraph)
     stripped_residue = residue.lstrip()
-    if not stripped_residue.startswith(("-", "—", ":")):
-        return False
-
-    subtitle = _clean_heading_text(stripped_residue.lstrip("-—:;,. "))
+    if stripped_residue.startswith(("-", "—", ":")):
+        subtitle = _clean_heading_text(stripped_residue.lstrip("-—:;,. "))
+    else:
+        # Accept subtitle text directly following the link (no separator),
+        # e.g. ``<a>CHAPTER I.</a><br/>Subtitle text``.
+        subtitle = _clean_heading_text(stripped_residue)
     if not subtitle or _NON_ALNUM_RE.sub("", subtitle) == "":
         return False
     if _HEADING_KEYWORD_RE.match(subtitle):

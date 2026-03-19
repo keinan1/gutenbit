@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 from bisect import bisect_left
+from weakref import WeakSet
 
 from bs4 import Tag
 
 from gutenbit.html_chunker._common import (
     _FRONT_MATTER_HEADINGS,
+    _HEADING_TAGS,
+    _HEADING_TAG_SET,
     _NON_ALNUM_RE,
     _NUMERIC_LINK_TEXT_RE,
     _ROMAN_NUMERAL_RE,
     _clean_heading_text,
     _front_matter_heading_key,
 )
+
+# Cache for paragraphs already checked by the multi-link TOC heuristic.
+# Using WeakSet so entries are garbage-collected when the soup is freed.
+_multi_link_toc_paragraphs: WeakSet[Tag] = WeakSet()
+_multi_link_toc_non_paragraphs: WeakSet[Tag] = WeakSet()
 from gutenbit.html_chunker._headings import (
     _heading_key,
     _is_non_structural_heading_text,
@@ -32,8 +40,11 @@ def _is_toc_context_link(link: Tag) -> bool:
     if link.find_parent("tr") is not None:
         return True
 
+    # Cache the paragraph lookup — reused by the multi-link heuristic below.
+    paragraph = link.find_parent("p")
+
     for name in ("p", "li", "div"):
-        container = link.find_parent(name)
+        container = paragraph if name == "p" else link.find_parent(name)
         if container is None:
             continue
         if container.name == "p" and _is_toc_paragraph(container):
@@ -46,6 +57,38 @@ def _is_toc_context_link(link: Tag) -> bool:
         residue = _container_residue_without_link_text(container)
         if _NON_ALNUM_RE.sub("", residue) == "":
             return True
+
+    # Multi-link paragraphs immediately following a "CONTENTS" heading
+    # are TOC blocks even when the residue is non-empty (e.g., discourse
+    # titles alongside Roman-numeral links).  Results are cached in
+    # module-level WeakSets to avoid O(n^2) find_all calls when every
+    # link in the same paragraph hits this path.
+    if paragraph is not None:
+        if paragraph in _multi_link_toc_paragraphs:
+            return True
+        if paragraph not in _multi_link_toc_non_paragraphs:
+            is_toc = False
+            # limit=20: we only care whether there are at least 20 links,
+            # so stop searching after that threshold is reached.
+            links = paragraph.find_all("a", class_="pginternal", limit=20)
+            # 20+ internal links in a single paragraph is far above normal
+            # prose density — only dense TOC blocks reach this threshold.
+            if len(links) >= 20:
+                prev = paragraph.find_previous_sibling()
+                if prev is not None:
+                    heading_el = (
+                        prev
+                        if prev.name in _HEADING_TAG_SET
+                        else prev.find(_HEADING_TAGS)
+                    )
+                    if heading_el is not None:
+                        prev_text = _front_matter_heading_key(heading_el.get_text())
+                        if prev_text in _FRONT_MATTER_HEADINGS:
+                            is_toc = True
+            if is_toc:
+                _multi_link_toc_paragraphs.add(paragraph)
+                return True
+            _multi_link_toc_non_paragraphs.add(paragraph)
     return False
 
 
@@ -139,5 +182,17 @@ def _toc_entry_matches_heading(entry_text: str, heading_text: str) -> bool:
     entry_key = _heading_key(entry_text)
     heading_key_val = _heading_key(heading_text)
     if len(entry_key) < 6:
+        # Short TOC entries (e.g. "I.", "IV.") still match when they are
+        # a prefix of the heading text, which means the TOC abbreviates
+        # the full heading (e.g. "I. THE THREE METAMORPHOSES.").
+        # Use the original text (not stripped key) to avoid false positives
+        # like "I." matching "In Chancery" via key prefix.
+        entry_stripped = entry_text.rstrip("., ")
+        heading_stripped = heading_text.lstrip()
+        if entry_stripped and heading_stripped.startswith(entry_stripped):
+            # Ensure the match ends at a word boundary (space, period, or end).
+            after = heading_stripped[len(entry_stripped) : len(entry_stripped) + 1]
+            if not after or after in " .,;:":
+                return True
         return False
     return entry_key in heading_key_val or heading_key_val in entry_key
