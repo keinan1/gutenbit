@@ -480,7 +480,7 @@ def _is_front_matter_heading(heading_text: str) -> bool:
     roles (e.g. nesting chapters under it).
     """
     return (
-        _STANDALONE_FRONT_MATTER_RE.match(heading_text) is not None
+        _is_standalone_front_matter_heading(heading_text)
         or _FRONT_MATTER_PREFIX_RE.match(heading_text) is not None
     )
 

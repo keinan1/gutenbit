@@ -453,7 +453,7 @@ def _merge_chapter_description_paragraphs(
     targets subtitles encoded as *paragraph* elements (``<p>``).
     """
     skip_paragraph_ids: set[int] = set()
-    new_sections = list(sections)
+    new_sections = sections
 
     for idx, sec in enumerate(new_sections):
         keyword = _heading_keyword(sec.heading_text)
@@ -484,10 +484,16 @@ def _merge_chapter_description_paragraphs(
             continue
 
         # Check if the text is ALL-CAPS (allow minor non-alpha chars).
-        alpha_chars = [c for c in ptext if c.isalpha()]
-        if not alpha_chars:
+        alpha_count = 0
+        upper_count = 0
+        for c in ptext:
+            if c.isalpha():
+                alpha_count += 1
+                if c.isupper():
+                    upper_count += 1
+        if not alpha_count:
             continue
-        upper_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
+        upper_ratio = upper_count / alpha_count
         if upper_ratio < _MIN_UPPERCASE_RATIO:
             continue
 

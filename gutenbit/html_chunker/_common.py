@@ -75,8 +75,8 @@ _NUMERIC_LINK_TEXT_RE = re.compile(r"^\[?\d+\]?$")
 _ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$")
 _PLAY_HEADING_PARAGRAPH_RE = re.compile(
     r"^(?:(?P<act>(?:ACTUS|ACT)\s+[A-Za-z0-9]+\.?)"
-    r"(?:[,.:\s]+(?P<scene>(?:SC(?:OE|AE|E|\u0153)NA|SCAENA|SCENE)\s+[A-Za-z0-9]+\.?))?"
-    r"|(?P<scene_only>(?:SC(?:OE|AE|E|\u0153)NA|SCAENA|SCENE)\s+[A-Za-z0-9]+\.?))$",
+    r"(?:[,.:\s]+(?P<scene>(?:SC(?:OE|AE|E|\u0153)NA|SCENE)\s+[A-Za-z0-9]+\.?))?"
+    r"|(?P<scene_only>(?:SC(?:OE|AE|E|\u0153)NA|SCENE)\s+[A-Za-z0-9]+\.?))$",
     re.IGNORECASE,
 )
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
