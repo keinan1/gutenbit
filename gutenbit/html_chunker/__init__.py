@@ -13,12 +13,17 @@ Each ``<p>`` element becomes its own chunk — no accumulation or merging.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, Tag
 
 from gutenbit.html_chunker._common import (
     _HEADING_TAGS,
+    _Section,
+)
+from gutenbit.html_chunker._headings import (
+    _heading_keyword,
 )
 from gutenbit.html_chunker._scanning import (
     _paragraphs_in_range,
@@ -44,7 +49,7 @@ from gutenbit.html_chunker._sections import (
 # ---------------------------------------------------------------------------
 
 HTML_PARSER_BACKEND = "lxml"
-CHUNKER_VERSION = 30
+CHUNKER_VERSION = 31
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +74,91 @@ class Chunk:
 
 
 __all__ = ["CHUNKER_VERSION", "Chunk", "HTML_PARSER_BACKEND", "chunk_html"]
+
+
+# ---------------------------------------------------------------------------
+# Bare-chapter description paragraph merger
+# ---------------------------------------------------------------------------
+
+# Matches bare chapter headings with only a keyword and number (no subtitle).
+_BARE_CHAPTER_RE = re.compile(
+    r"^(?:CHAPTER|STAVE|ADVENTURE|SCENE)\.?\s+"
+    r"(?:[IVXLCDM0-9]+|[A-Z](?=[.\s])|THE\s+\w+|"
+    r"(?:ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN|"
+    r"ELEVEN|TWELVE|THIRTEEN|FOURTEEN|FIFTEEN|SIXTEEN|SEVENTEEN|"
+    r"EIGHTEEN|NINETEEN|TWENTY|THIRTY|FORTY|FIFTY|SIXTY|SEVENTY|"
+    r"EIGHTY|NINETY|HUNDRED)"
+    r"(?:[- ](?:ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE))?)"
+    r"\.?\s*$",
+    re.IGNORECASE,
+)
+
+# Characters that are uppercase letters, digits, or typical punctuation.
+_UPPER_CHARS_RE = re.compile(r"[A-Z0-9\s.,;:!?'\"\u2018\u2019\u201c\u201d()\-\u2014\u2013/]")
+
+
+def _merge_chapter_description_paragraphs(
+    sections: list[_Section],
+    *,
+    tag_positions: dict[int, int],
+) -> tuple[list[_Section], set[int]]:
+    """Merge ALL-CAPS description paragraphs into bare chapter headings.
+
+    Returns the updated sections and a set of paragraph tag IDs to skip
+    during chunk emission.
+
+    Handles the common Gutenberg pattern where a chapter heading like
+    ``<h2>CHAPTER TWO</h2>`` is followed by a ``<p>WHEREIN CERTAIN
+    PERSONS ARE PRESENTED TO THE READER…</p>`` that is really the
+    chapter description, not body text.
+    """
+    skip_paragraph_ids: set[int] = set()
+    new_sections = list(sections)
+
+    for idx, sec in enumerate(new_sections):
+        keyword = _heading_keyword(sec.heading_text)
+        if not keyword or not _BARE_CHAPTER_RE.fullmatch(sec.heading_text):
+            continue
+
+        # Find the heading element and then the next <p> sibling.
+        anchor = sec.body_anchor
+        heading_el = anchor.find_parent(_HEADING_TAGS) or anchor
+        next_p: Tag | None = None
+        for sibling in heading_el.next_siblings:
+            if isinstance(sibling, Tag):
+                if sibling.name in _HEADING_TAGS:
+                    break  # hit next heading, no description paragraph
+                if sibling.name == "p":
+                    next_p = sibling
+                    break
+
+        if next_p is None:
+            continue
+
+        ptext = " ".join(next_p.get_text().split()).strip()
+        if not ptext or len(ptext) > 300:
+            continue
+
+        # Check if the text is ALL-CAPS (allow minor non-alpha chars).
+        alpha_chars = [c for c in ptext if c.isalpha()]
+        if not alpha_chars:
+            continue
+        upper_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
+        if upper_ratio < 0.9:
+            continue
+
+        # Merge description into heading text.
+        combined = f"{sec.heading_text} {ptext}"
+        new_sections[idx] = _Section(
+            sec.anchor_id,
+            combined,
+            sec.level,
+            sec.body_anchor,
+            sec.heading_rank,
+        )
+        skip_paragraph_ids.add(id(next_p))
+
+    return new_sections, skip_paragraph_ids
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +234,15 @@ def chunk_html(html: str) -> list[Chunk]:
     max_div = 4
     sections = [s._with_level(min(max_div, s.level)) for s in sections]
 
+    # Merge ALL-CAPS description paragraphs into bare chapter headings so
+    # that e.g. "CHAPTER I" followed by a <p>TREATING OF SHOES...</p> becomes
+    # "CHAPTER I TREATING OF SHOES...".  The merged <p> tags are excluded
+    # from body-text emission below.
+    sections, skip_paragraph_ids = _merge_chapter_description_paragraphs(
+        sections, tag_positions=tag_positions,
+    )
+    _skip_tag_ids = frozenset(skip_paragraph_ids) if skip_paragraph_ids else None
+
     chunks: list[Chunk] = []
     pos = 0
     divs = ["", "", "", ""]
@@ -166,6 +265,7 @@ def chunk_html(html: str) -> list[Chunk]:
             stop_pos,
             heading_texts=heading_texts,
             min_length=20,
+            skip_tag_ids=_skip_tag_ids,
         ):
             chunks.append(Chunk(pos, "", "", "", "", text, "text"))
             pos += 1
@@ -209,6 +309,7 @@ def chunk_html(html: str) -> list[Chunk]:
                 doc_index.paragraph_positions,
                 start_pos_val,
                 stop_pos_val,
+                skip_tag_ids=_skip_tag_ids,
             ):
                 chunks.append(Chunk(pos, divs[0], divs[1], divs[2], divs[3], text, "text"))
                 pos += 1

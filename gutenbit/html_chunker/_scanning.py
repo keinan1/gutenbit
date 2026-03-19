@@ -300,6 +300,7 @@ def _paragraphs_in_range(
     *,
     heading_texts: set[str] | None = None,
     min_length: int = 0,
+    skip_tag_ids: frozenset[int] | None = None,
 ) -> list[str]:
     """Return paragraph texts within (start_pos, stop_pos) using bisect.
 
@@ -313,6 +314,8 @@ def _paragraphs_in_range(
     paragraphs: list[str] = []
     for ip in p_index[lo:hi]:
         if ip.is_toc:
+            continue
+        if skip_tag_ids and id(ip.tag) in skip_tag_ids:
             continue
         if min_length and len(ip.text) < min_length:
             continue

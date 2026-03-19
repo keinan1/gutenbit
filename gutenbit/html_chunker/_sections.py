@@ -414,7 +414,9 @@ def _respect_heading_rank_nesting(
             continue
 
         parent: _Section | None = None
-        for previous in reversed(sections[:idx]):
+        parent_idx: int | None = None
+        for prev_idx in range(idx - 1, -1, -1):
+            previous = sections[prev_idx]
             if previous.heading_rank is None or previous.heading_rank >= section.heading_rank:
                 continue
             if not _is_refinement_heading(previous.heading_text):
@@ -428,20 +430,37 @@ def _respect_heading_rank_nesting(
                 if _is_standalone_front_matter_heading(previous.heading_text):
                     continue
             parent = previous
+            parent_idx = prev_idx
             break
 
         if parent is None:
             continue
 
-        if new_levels[idx] > parent.level:
+        # Use the (possibly updated) parent level so that multi-level
+        # rank chains (e.g. h2 → h3 → h4) nest correctly.
+        effective_parent_level = new_levels[parent_idx]
+        if new_levels[idx] > effective_parent_level:
             continue
 
         parent_kw = _heading_keyword(parent.heading_text)
         child_kw = _heading_keyword(section.heading_text)
+        # Skip when parent and child share the same keyword (e.g.
+        # sequential CHAPTER headings).  In heading-scan mode, allow
+        # same-keyword nesting when the child's rank is strictly deeper
+        # AND the keyword is not a broad container (e.g. h3 CHAPTER I →
+        # h4 CHAPTER I. is valid sub-chapter nesting, but BOOK I →
+        # BOOK II at different ranks is not).
         if parent_kw and parent_kw == child_kw:
-            continue
+            if (
+                not infer_from_rank
+                or parent_kw in _BROAD_KEYWORDS
+                or parent.heading_rank is None
+                or section.heading_rank is None
+                or section.heading_rank <= parent.heading_rank
+            ):
+                continue
 
-        new_levels[idx] = min(4, parent.level + 1)
+        new_levels[idx] = min(4, effective_parent_level + 1)
         changed = True
 
     if not changed:

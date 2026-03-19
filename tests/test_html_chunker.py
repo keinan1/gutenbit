@@ -2434,3 +2434,80 @@ def test_non_keyword_headings_nest_chapters_by_rank():
 
     scenes_ch1 = [c for c in headings if "STREETS" in c.content][0]
     assert scenes_ch1.div1 == "SCENES", "Chapter should nest under SCENES"
+
+
+# ------------------------------------------------------------------
+# Bare chapter description paragraph merging (cf. PG 968, Chuzzlewit)
+# ------------------------------------------------------------------
+
+
+def test_bare_chapter_description_merged_into_heading():
+    """Regression: ALL-CAPS description <p> after bare chapter heading merges.
+
+    Books like Martin Chuzzlewit have "CHAPTER I" followed by a <p> like
+    "INTRODUCTORY, CONCERNING THE PEDIGREE…" which should merge into the
+    chapter heading text so all chapters have consistent descriptions.
+    """
+    html = _make_html("""
+    <h2><a id="ch1"></a>CHAPTER I</h2>
+    <p>INTRODUCTORY, CONCERNING THE PEDIGREE OF THE CHUZZLEWIT FAMILY</p>
+    <p>Body text of chapter one.</p>
+    <h2><a id="ch2"></a>CHAPTER II</h2>
+    <p>WHEREIN CERTAIN PERSONS ARE PRESENTED TO THE READER</p>
+    <p>Body text of chapter two.</p>
+    <h2><a id="ch3"></a>CHAPTER III MAKES THE READER'S ACQUAINTANCE</h2>
+    <p>Body text of chapter three.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    texts = [c for c in chunks if c.kind == "text"]
+
+    # Bare chapters should have description merged in.
+    assert "INTRODUCTORY" in headings[0].content
+    assert "WHEREIN" in headings[1].content
+    # Chapter III already has a subtitle — should be untouched.
+    assert headings[2].content == "CHAPTER III MAKES THE READER'S ACQUAINTANCE"
+
+    # Description paragraphs must NOT appear as body text chunks.
+    all_text = " ".join(c.content for c in texts)
+    assert "INTRODUCTORY" not in all_text
+    assert "WHEREIN" not in all_text
+    # Actual body text should still be present.
+    assert "Body text of chapter one" in all_text
+    assert "Body text of chapter two" in all_text
+
+
+def test_mixed_case_description_not_merged():
+    """Description paragraphs that are NOT all-caps should remain as body text."""
+    html = _make_html("""
+    <h2><a id="ch1"></a>CHAPTER I</h2>
+    <p>This is a normal mixed-case paragraph about the first chapter.</p>
+    <p>More body text.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    texts = [c for c in chunks if c.kind == "text"]
+
+    assert headings[0].content == "CHAPTER I"
+    assert any("normal mixed-case" in c.content for c in texts)
+
+
+def test_section_letter_indices_parsed_as_structural():
+    """Regression: SECTION A, SECTION B etc. are valid structural headings.
+
+    Mudfog Papers uses SECTION A–D for report sub-sections.
+    """
+    html = _make_html("""
+    <h2><a id="report"></a>FULL REPORT OF THE FIRST MEETING</h2>
+    <h3><a id="sa"></a>SECTION A. ZOOLOGY AND BOTANY</h3>
+    <p>Content of section A.</p>
+    <h3><a id="sb"></a>SECTION B. ANATOMY AND MEDICINE</h3>
+    <p>Content of section B.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    sa = [c for c in headings if "SECTION A" in c.content][0]
+    sb = [c for c in headings if "SECTION B" in c.content][0]
+    assert sa.div1 == "FULL REPORT OF THE FIRST MEETING"
+    assert sb.div1 == "FULL REPORT OF THE FIRST MEETING"

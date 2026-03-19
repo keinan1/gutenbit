@@ -41,7 +41,7 @@ _STRUCTURAL_KEYWORD_ALIASES = {
 }
 
 _STRUCTURAL_INDEX_TOKEN_RE = re.compile(
-    r"^(?:[IVXLCDM]+|[0-9]+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"^(?:[IVXLCDM]+|[0-9]+|[A-Z]|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
     r"nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
     r"first|second|third|fourth|fifth|sixth|seventh|eighth|"
