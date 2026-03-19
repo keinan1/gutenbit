@@ -1329,3 +1329,24 @@ def test_two_noble_kinsmen_keeps_prologue_and_epilogue():
     assert "Epilogue" in heading_texts or "EPILOGUE" in heading_texts
     acts = [h for h in headings if h.div2 and ("Act" in h.div1 or "ACT" in h.div1)]
     assert len(acts) > 20  # scenes nested under acts
+
+
+def test_measure_for_measure_recovers_all_five_acts_and_nests_scenes():
+    """PG 23045 — Cambridge Edition: ACT/Scene in English, TOC omits acts."""
+    headings = _headings(23045)
+
+    # All 5 acts present as top-level headings.
+    acts = [h for h in headings if h.content.startswith("ACT") and not h.div2]
+    assert len(acts) == 5
+    assert acts[0].content == "ACT I."
+
+    # Scenes nest under their acts.
+    act_i_scenes = [h for h in headings if h.div1 == "ACT I." and h.div2]
+    assert len(act_i_scenes) == 4
+
+    act_iv_scenes = [h for h in headings if h.div1 == "ACT IV." and h.div2]
+    assert len(act_iv_scenes) == 6
+
+    # Editorial notes are top-level peers, not nested under ACT V.
+    notes = [h for h in headings if h.content.startswith("Note") and not h.div2]
+    assert len(notes) == 22

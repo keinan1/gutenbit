@@ -859,7 +859,16 @@ def _refine_toc_sections(
                 continue
             if candidate_pos >= first_pos:
                 break
-            if _FALLBACK_START_HEADING_RE.match(candidate.heading_text):
+            # Accept front-matter headings (PREFACE, etc.) and broad
+            # structural containers (ACT, BOOK, PART) that the TOC omits.
+            candidate_kw = _heading_keyword(candidate.heading_text)
+            if _FALLBACK_START_HEADING_RE.match(candidate.heading_text) or (
+                candidate_kw
+                and candidate_kw in _BROAD_KEYWORDS
+                and candidate.heading_rank is not None
+                and first_toc.heading_rank is not None
+                and candidate.heading_rank < first_toc.heading_rank
+            ):
                 refined.append(candidate._with_level(min(candidate.level, first_toc.level)))
                 added += 1
             heading_idx += 1
@@ -1000,6 +1009,16 @@ def _refined_candidate_section(
         return None
     if _is_title_like_heading(toc_section.heading_text):
         return candidate
+    # When a refinement candidate has a more prominent heading rank (lower
+    # number, e.g. h3 ACT vs h4 Scene), it is a structural container that
+    # the TOC omitted.  Place it at the same level as the TOC entries so
+    # that _nest_chapters_under_broad_containers can shift scenes beneath it.
+    if (
+        candidate.heading_rank is not None
+        and toc_section.heading_rank is not None
+        and candidate.heading_rank < toc_section.heading_rank
+    ):
+        return candidate._with_level(toc_section.level)
     return candidate if candidate.level > toc_section.level else None
 
 
@@ -1159,6 +1178,9 @@ def _nest_chapters_under_broad_containers(sections: list[_Section]) -> list[_Sec
                 if _STANDALONE_STRUCTURAL_RE.search(inner_text):
                     break
                 if _REFINEMENT_STOP_HEADING_RE.match(inner_text):
+                    break
+                # Apparatus entries like "Note I." are peers, not children.
+                if _FALLBACK_START_HEADING_RE.match(inner_text):
                     break
                 shifted = min(4, inner_level + 1)
                 if shifted != inner_level:
