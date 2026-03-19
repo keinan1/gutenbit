@@ -32,12 +32,14 @@ from gutenbit.html_chunker._headings import (
     _heading_keyword,
     _heading_text_suggests_play_structure,
     _headings_have_text_between,
+    _is_bare_keyword_heading,
     _is_deep_rank_bare_numeral_heading,
     _is_dialogue_speaker_heading,
     _is_editorial_placeholder_heading,
     _is_emphasized_toc_link,
     _is_empty_front_matter_stub_heading,
     _is_front_matter_attribution_heading,
+    _is_front_matter_heading,
     _is_ignorable_fallback_heading,
     _is_non_structural_heading_text,
     _is_rank5_subheading_under_nonchapter_section,
@@ -69,6 +71,17 @@ from gutenbit.html_chunker._toc import (
     _toc_context_text,
     _toc_entry_matches_heading,
 )
+
+# ---------------------------------------------------------------------------
+# Thresholds for _merge_chapter_description_paragraphs
+# ---------------------------------------------------------------------------
+
+# Longest description paragraph to merge (chars).  Gutenberg chapter
+# descriptions are typically 1–2 lines; anything longer is body prose.
+_MAX_DESCRIPTION_PARAGRAPH_LEN = 300
+# Minimum fraction of alpha chars that must be uppercase for the paragraph
+# to be considered an ALL-CAPS description (allows minor OCR artifacts).
+_MIN_UPPERCASE_RATIO = 0.9
 
 # ---------------------------------------------------------------------------
 # Compiled regex patterns (used only within this module)
@@ -337,8 +350,199 @@ def _merge_adjacent_duplicate_sections(sections: list[_Section]) -> list[_Sectio
     return merged
 
 
-def _respect_heading_rank_nesting(sections: list[_Section]) -> list[_Section]:
-    """Raise levels when heading ranks show a section was flattened too far."""
+def _merge_chapter_subtitle_sections(
+    sections: list[_Section],
+    *,
+    toc_anchor_ids: frozenset[str] = frozenset(),
+) -> list[_Section]:
+    """Merge a chapter heading with an immediately following non-keyword subtitle.
+
+    Handles the pattern where ``<h2>CHAPTER ONE</h2>`` is followed by
+    ``<h3>INTRODUCTORY, CONCERNING THE PEDIGREE…</h3>`` — the subtitle should
+    be part of the chapter title, not a separate sub-section.
+
+    Merging is skipped when the subtitle has a structural keyword, or when the
+    subtitle's anchor appears in *toc_anchor_ids* (it was a deliberate TOC
+    entry and should remain a standalone section).
+
+    Complements :func:`_merge_chapter_description_paragraphs`, which merges
+    subtitles encoded as ``<p>`` elements rather than heading tags.
+    """
+    if len(sections) < 2:
+        return sections
+
+    merged: list[_Section] = []
+    i = 0
+    while i < len(sections):
+        sec = sections[i]
+        if i + 1 < len(sections):
+            nxt = sections[i + 1]
+            keyword = _heading_keyword(sec.heading_text)
+            if (
+                keyword
+                and keyword not in _BROAD_KEYWORDS
+                and not _heading_keyword(nxt.heading_text)
+                and nxt.heading_rank is not None
+                and sec.heading_rank is not None
+                and nxt.heading_rank == sec.heading_rank + 1
+                and nxt.level > sec.level
+                and nxt.anchor_id not in toc_anchor_ids
+            ):
+                combined = f"{sec.heading_text} {nxt.heading_text}"
+                merged.append(
+                    _Section(
+                        sec.anchor_id,
+                        combined,
+                        sec.level,
+                        sec.body_anchor,
+                        sec.heading_rank,
+                    )
+                )
+                i += 2
+                continue
+        merged.append(sec)
+        i += 1
+    return merged
+
+
+def _merge_chapter_description_paragraphs(
+    sections: list[_Section],
+) -> tuple[list[_Section], set[int]]:
+    """Merge ALL-CAPS description ``<p>`` elements into bare chapter headings.
+
+    Returns the updated sections and a set of paragraph tag ``id()`` values
+    to skip during chunk emission (safe because the same BeautifulSoup parse
+    tree is alive for the entire ``chunk_html`` call).
+
+    Handles the common Gutenberg pattern where a chapter heading like
+    ``<h2>CHAPTER TWO</h2>`` is followed by a ``<p>WHEREIN CERTAIN
+    PERSONS ARE PRESENTED TO THE READER…</p>`` that is really the
+    chapter description, not body text.
+
+    Complements :func:`_merge_chapter_subtitle_sections`, which merges
+    subtitles encoded as *heading* elements (``<h3>``).  This function
+    targets subtitles encoded as *paragraph* elements (``<p>``).
+    """
+    skip_paragraph_ids: set[int] = set()
+    new_sections = list(sections)
+
+    for idx, sec in enumerate(new_sections):
+        keyword = _heading_keyword(sec.heading_text)
+        if (
+            not keyword
+            or keyword in _BROAD_KEYWORDS
+            or not _is_bare_keyword_heading(sec.heading_text, keyword)
+        ):
+            continue
+
+        # Find the heading element and then the next <p> sibling.
+        anchor = sec.body_anchor
+        heading_el = anchor.find_parent(_HEADING_TAGS) or anchor
+        next_p: Tag | None = None
+        for sibling in heading_el.next_siblings:
+            if isinstance(sibling, Tag):
+                if sibling.name in _HEADING_TAGS:
+                    break  # hit next heading, no description paragraph
+                if sibling.name == "p":
+                    next_p = sibling
+                    break
+
+        if next_p is None:
+            continue
+
+        ptext = " ".join(next_p.get_text().split()).strip()
+        if not ptext or len(ptext) > _MAX_DESCRIPTION_PARAGRAPH_LEN:
+            continue
+
+        # Check if the text is ALL-CAPS (allow minor non-alpha chars).
+        alpha_chars = [c for c in ptext if c.isalpha()]
+        if not alpha_chars:
+            continue
+        upper_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
+        if upper_ratio < _MIN_UPPERCASE_RATIO:
+            continue
+
+        # Merge description into heading text.
+        combined = f"{sec.heading_text} {ptext}"
+        new_sections[idx] = _Section(
+            sec.anchor_id,
+            combined,
+            sec.level,
+            sec.body_anchor,
+            sec.heading_rank,
+        )
+        skip_paragraph_ids.add(id(next_p))
+
+    return new_sections, skip_paragraph_ids
+
+
+def _is_valid_rank_parent(
+    parent: _Section,
+    child: _Section,
+    *,
+    infer_from_rank: bool,
+) -> bool:
+    """Return True when *parent* can serve as a rank-based container for *child*.
+
+    In the strict TOC path (*infer_from_rank* False), only refinement headings
+    (those with a structural keyword) qualify as parents.
+
+    In the relaxed heading-scan path (*infer_from_rank* True), non-keyword
+    headings like ``OUR PARISH`` may parent when the rank gap is exactly 1,
+    except front-matter headings which should never act as containers.
+    """
+    if _is_refinement_heading(parent.heading_text):
+        return True
+    if not infer_from_rank:
+        return False
+    if child.heading_rank is None or parent.heading_rank is None:
+        return False
+    if child.heading_rank - parent.heading_rank != 1:
+        return False
+    return not _is_front_matter_heading(parent.heading_text)
+
+
+def _should_skip_same_keyword_nesting(
+    parent: _Section,
+    child: _Section,
+    *,
+    infer_from_rank: bool,
+) -> bool:
+    """Return True when same-keyword parent/child should NOT nest.
+
+    Sequential headings sharing a keyword (e.g. CHAPTER I, CHAPTER II) are
+    siblings, not parent-child.  In heading-scan mode, same-keyword nesting
+    is allowed when the child rank is strictly deeper and the keyword is not
+    a broad container (e.g. ``h3 CHAPTER I → h4 CHAPTER I.``).
+    """
+    parent_kw = _heading_keyword(parent.heading_text)
+    child_kw = _heading_keyword(child.heading_text)
+    if not parent_kw or parent_kw != child_kw:
+        return False
+    if not infer_from_rank:
+        return True
+    # Broad keywords (BOOK, PART, …) are handled by the separate
+    # _nest_chapters_under_broad_containers pass, so always skip here
+    # to avoid double-nesting.
+    if parent_kw in _BROAD_KEYWORDS:
+        return True
+    if parent.heading_rank is None or child.heading_rank is None:
+        return True
+    return child.heading_rank <= parent.heading_rank
+
+
+def _respect_heading_rank_nesting(
+    sections: list[_Section],
+    *,
+    infer_from_rank: bool = False,
+) -> list[_Section]:
+    """Raise levels when heading ranks show a section was flattened too far.
+
+    When *infer_from_rank* is True (heading-scan fallback only), non-keyword
+    headings may serve as parents when the rank gap is exactly 1 (e.g. h2 "OUR
+    PARISH" → h3 "CHAPTER I").  In the TOC path the hierarchy is already
+    authoritative, so this relaxation is disabled by default.
+    """
     if len(sections) < 2:
         return sections
 
@@ -349,25 +553,29 @@ def _respect_heading_rank_nesting(sections: list[_Section]) -> list[_Section]:
         if section.heading_rank is None:
             continue
 
-        parent: _Section | None = None
-        for previous in reversed(sections[:idx]):
+        parent_idx: int | None = None
+        for prev_idx in range(idx - 1, -1, -1):
+            previous = sections[prev_idx]
             if previous.heading_rank is None or previous.heading_rank >= section.heading_rank:
                 continue
-            if not _is_refinement_heading(previous.heading_text):
-                continue
-            parent = previous
-            break
+            if _is_valid_rank_parent(previous, section, infer_from_rank=infer_from_rank):
+                parent_idx = prev_idx
+                break
 
-        if parent is None:
+        if parent_idx is None:
             continue
 
-        if new_levels[idx] > parent.level:
+        parent = sections[parent_idx]
+        # Use the (possibly updated) parent level so that multi-level
+        # rank chains (e.g. h2 → h3 → h4) nest correctly.
+        effective_parent_level = new_levels[parent_idx]
+        if new_levels[idx] > effective_parent_level:
             continue
 
-        if _heading_keyword(section.heading_text) == _heading_keyword(parent.heading_text):
+        if _should_skip_same_keyword_nesting(parent, section, infer_from_rank=infer_from_rank):
             continue
 
-        new_levels[idx] = min(4, parent.level + 1)
+        new_levels[idx] = min(4, effective_parent_level + 1)
         changed = True
 
     if not changed:
@@ -541,7 +749,7 @@ def _parse_heading_sections(
 
     sections = _drop_leading_repeated_title_sections(sections)
     sections = _collapse_degenerate_title_block(sections, doc_index=doc_index)
-    return _respect_heading_rank_nesting(sections)
+    return _respect_heading_rank_nesting(sections, infer_from_rank=True)
 
 
 def _collapse_degenerate_title_block(
@@ -891,6 +1099,10 @@ def _nest_chapters_under_broad_containers(sections: list[_Section]) -> list[_Sec
         keyword = _heading_keyword(section.heading_text)
         if keyword not in _BROAD_KEYWORDS:
             continue
+        # Front-matter headings like "PREFACE TO THE FIRST VOLUME" match a
+        # broad keyword but are not structural containers.
+        if _is_front_matter_heading(section.heading_text):
+            continue
 
         broad_level = new_levels[idx]
 
@@ -1086,6 +1298,24 @@ def _fallback_start_index(heading_rows: list[_HeadingRow]) -> int | None:
     start_rank = min(row.rank for _, row in start_rows)
     for idx, row in start_rows:
         if row.rank == start_rank:
+            # When the first structural heading has peer or slightly-
+            # higher-rank headings before it (e.g. h2 DEDICATION before
+            # h2 PREFACE, or h2 story titles before h3 "Section C"),
+            # extend backwards through a contiguous run of matching-rank
+            # headings.  Only extend to ranks in [max(2, start_rank-1),
+            # start_rank] — this excludes h1 title headings and stops
+            # at any gap (e.g. an intervening h1 or a rank-7 paragraph
+            # heading).  The scan stops at the first non-matching rank.
+            if start_rank >= 2 and idx > 0:
+                min_rank = max(2, start_rank - 1)
+                new_start = idx
+                for j in range(idx - 1, -1, -1):
+                    if min_rank <= heading_rows[j].rank <= start_rank:
+                        new_start = j
+                    else:
+                        break
+                if new_start < idx:
+                    return new_start
             return idx
     return None
 

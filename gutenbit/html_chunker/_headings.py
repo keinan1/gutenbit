@@ -9,6 +9,7 @@ from collections.abc import Callable
 from bs4 import Tag
 
 from gutenbit.html_chunker._common import (
+    _BARE_HEADING_NUMBER_RE,
     _BRACKETED_NUMERIC_HEADING_RE,
     _BROAD_KEYWORDS,
     _BROAD_NESTING_DEPTHS,
@@ -43,9 +44,11 @@ _STRUCTURAL_KEYWORD_ALIASES = {
 _STRUCTURAL_INDEX_TOKEN_RE = re.compile(
     r"^(?:[IVXLCDM]+|[0-9]+|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
-    r"nineteen|twenty|first|second|third|fourth|fifth|sixth|seventh|eighth|"
+    r"nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
+    r"first|second|third|fourth|fifth|sixth|seventh|eighth|"
     r"ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|"
     r"sixteenth|seventeenth|eighteenth|nineteenth|twentieth|"
+    r"thirtieth|fortieth|fiftieth|sixtieth|seventieth|eightieth|ninetieth|"
     r"primus|prima|secundus|secunda|tertius|tertia|quartus|quarta|"
     r"quintus|quinta|sextus|sexta|septimus|septima|octavus|octava|"
     r"nonus|nona|decimus|decima)$",
@@ -93,6 +96,20 @@ _FRONT_MATTER_ATTRIBUTION_HEADING_RE = re.compile(
     r"^(?:introduction|preface|foreword|afterword)\s+by\b",
     re.IGNORECASE,
 )
+# Front/back-matter keyword base shared by both prefix and standalone regexes.
+_FRONT_MATTER_KEYWORD_ALT = (
+    r"PREFACE|FOREWORD|AFTERWORD|POSTSCRIPT|DEDICATION|"
+    r"ACKNOWLEDGEMENTS?|ACKNOWLEDGMENTS?"
+)
+_FRONT_MATTER_PREFIX_RE = re.compile(
+    rf"^(?:{_FRONT_MATTER_KEYWORD_ALT})\b",
+    re.IGNORECASE,
+)
+_STANDALONE_FRONT_MATTER_RE = re.compile(
+    rf"^(?:{_FRONT_MATTER_KEYWORD_ALT}|AUTHOR'?S?\s*NOTE|"
+    r"BIOGRAPHICAL\s+NOTICE|NOTE\s+ON\s+THE\s+TEXT)\.?\s*$",
+    re.IGNORECASE,
+)
 _PLAIN_NUMBER_HEADING_RE = re.compile(r"^(?:[IVXLCDM]+|[0-9]+)\.?$", re.IGNORECASE)
 _VERSE_REFERENCE_HEADING_RE = re.compile(r"^\d+:\d+:\d+")
 _NON_SUBTITLE_HEADING_RE = re.compile(r"^(?:chap(?:ters?)?)\.?$", re.IGNORECASE)
@@ -138,6 +155,9 @@ def _heading_keyword(heading_text: str) -> str:
             return canonical
         index_token = tokens[1] if len(tokens) > 1 and tokens[0] == "the" else tokens[0]
         if _STRUCTURAL_INDEX_TOKEN_RE.fullmatch(index_token):
+            return canonical
+        # Single-letter indices (A, B, C) are only valid for SECTION.
+        if canonical == "section" and len(index_token) == 1 and index_token.isalpha():
             return canonical
         return ""
 
@@ -202,6 +222,11 @@ def _classify_level(heading_text: str, is_emphasized_in_toc: bool) -> int:
     keyword = _heading_keyword(heading_text)
     if keyword:
         if keyword in _BROAD_KEYWORDS:
+            # Front-matter headings like "PREFACE TO THE FIRST VOLUME"
+            # match "volume" as a broad keyword but are not structural
+            # containers — demote to chapter level.
+            if _is_front_matter_heading(heading_text):
+                return 2
             return 1
         if keyword == "section":
             return 3
@@ -432,6 +457,64 @@ def _is_front_matter_attribution_heading(row: _HeadingRow) -> bool:
     if row.rank < 4:
         return False
     return _FRONT_MATTER_ATTRIBUTION_HEADING_RE.match(row.heading_text) is not None
+
+
+def _is_standalone_front_matter_heading(heading_text: str) -> bool:
+    """Return True for standalone front/back-matter headings like PREFACE."""
+    return _STANDALONE_FRONT_MATTER_RE.match(heading_text) is not None
+
+
+def _is_front_matter_heading(heading_text: str) -> bool:
+    """Return True for any front/back-matter heading, standalone or with trailer.
+
+    Matches both bare ``PREFACE`` and ``PREFACE TO THE FIRST VOLUME``.
+    Use this when the heading should be excluded from structural container
+    roles (e.g. nesting chapters under it).
+    """
+    return (
+        _STANDALONE_FRONT_MATTER_RE.match(heading_text) is not None
+        or _FRONT_MATTER_PREFIX_RE.match(heading_text) is not None
+    )
+
+
+def _is_bare_keyword_heading(heading_text: str, keyword: str | None = None) -> bool:
+    """Return True for keyword+index headings with no trailing subtitle.
+
+    Matches headings like ``CHAPTER I``, ``CHAPTER THIRTY-SIX``, ``STAVE II``
+    but NOT ``CHAPTER I THE BEGINNING`` (which has a subtitle).
+    Reuses :func:`_heading_keyword` and :data:`_STRUCTURAL_INDEX_TOKEN_RE`
+    so the number-word vocabulary is defined in exactly one place.
+
+    *keyword* may be passed to avoid a redundant :func:`_heading_keyword` call
+    when the caller has already extracted it.
+    """
+    if keyword is None:
+        keyword = _heading_keyword(heading_text)
+    if not keyword:
+        return False
+    if _BARE_HEADING_NUMBER_RE.fullmatch(heading_text):
+        return True
+    # Tokenize after the keyword, handling "THE" and hyphenated compounds
+    # like "THIRTY-SIX".
+    tokens = heading_text.split()
+    if len(tokens) < 2:
+        return False
+    idx = 1
+    # Skip optional article "THE" (e.g. "CHAPTER THE FIRST"), but only
+    # when more tokens follow — "CHAPTER THE" alone is not bare.
+    if tokens[idx].upper() == "THE" and len(tokens) > idx + 1:
+        idx += 1
+    allow_letter = keyword == "section"
+    for token in tokens[idx:]:
+        for part in token.rstrip(".,;:!?").split("-"):
+            if not part:
+                continue
+            if _STRUCTURAL_INDEX_TOKEN_RE.fullmatch(part):
+                continue
+            if allow_letter and len(part) == 1 and part.isalpha():
+                continue
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 """Tests for HTML chunker: TOC-driven structural parsing."""
 
+import re
+
 from gutenbit.html_chunker import chunk_html
 
 # ------------------------------------------------------------------
@@ -2246,3 +2248,267 @@ def test_section_levels_capped_at_four():
     assert len(headings) >= 4
     deepest = headings[-1]
     assert deepest.div4 != "" or deepest.div3 != ""
+
+
+def test_fallback_extends_backwards_to_peer_rank_headings():
+    """Regression: h2 titles before h3 structural headings must be included.
+
+    Modelled on PG 912 (Mudfog Papers) where h2 story titles precede the
+    first h3 "Section" heading.  Without the backward-scan fix, the parser
+    started at the h3, skipping the story titles entirely.
+    """
+    html = _make_html("""
+    <h1>THE MUDFOG PAPERS</h1>
+    <h2>PUBLIC LIFE OF MR. TULRUMBLE</h2>
+    <p>Story paragraph one.</p>
+    <h2>FULL REPORT OF THE FIRST MEETING</h2>
+    <p>Meeting intro paragraph.</p>
+    <h3>Section A.—Zoology and Botany.</h3>
+    <p>Zoology paragraph.</p>
+    <h3>Section B.—Anatomy and Medicine.</h3>
+    <p>Anatomy paragraph.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert "PUBLIC LIFE OF MR. TULRUMBLE" in headings
+    assert "FULL REPORT OF THE FIRST MEETING" in headings
+    assert "Section A.\u2014Zoology and Botany." in headings
+
+
+def test_fallback_extends_backwards_to_same_rank_before_keyword_heading():
+    """Regression: h2 DEDICATION/ADDRESS before h2 PREFACE must be included.
+
+    Modelled on PG 588 (Master Humphrey's Clock) where DEDICATION and
+    ADDRESS at h2 precede a keyword-bearing h2 PREFACE.  The backward scan
+    must include same-rank headings immediately before the structural start.
+    """
+    html = _make_html("""
+    <h1>MASTER HUMPHREY'S CLOCK</h1>
+    <h2>DEDICATION</h2>
+    <p>Dedication text.</p>
+    <h2>ADDRESS</h2>
+    <p>Address text.</p>
+    <h2>PREFACE TO THE FIRST VOLUME</h2>
+    <p>Preface text.</p>
+    <h2>I</h2>
+    <h3>THE CLOCK-CASE</h3>
+    <p>Content of chapter I.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert "DEDICATION" in headings
+    assert "ADDRESS" in headings
+    assert "PREFACE TO THE FIRST VOLUME" in headings
+
+
+def test_fallback_backward_scan_does_not_pull_h2_into_paragraph_headings():
+    """Ensure the backward scan stays within 1 rank of the structural start.
+
+    When paragraph-level play headings (rank 7) are detected, an h2 title
+    like HAMLET must NOT be pulled in — the rank gap is too wide.
+    """
+    html = _make_html("""
+    <h2>HAMLET</h2>
+    <p>ACT I</p>
+    <p>SCENE I</p>
+    <p>Opening speech.</p>
+    <p>SCENE II</p>
+    <p>Another speech.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    assert "HAMLET" not in headings
+    assert "ACT I" in headings
+    assert "SCENE I" in headings
+
+
+def test_number_words_thirty_and_above_recognized_as_chapter_keyword():
+    """Regression: CHAPTER THIRTY-SIX must be recognized as a chapter keyword.
+
+    The structural index token regex previously only covered number words up
+    to "twenty", causing CHAPTER THIRTY, CHAPTER FORTY, etc. to be treated
+    as non-keyword headings.
+    """
+    html = _make_html("""
+    <h2>CHAPTER TWENTY-NINE</h2>
+    <p>Content of chapter 29.</p>
+    <h2>CHAPTER THIRTY</h2>
+    <h3>A DESCRIPTIVE SUBTITLE</h3>
+    <p>Content of chapter 30.</p>
+    <h2>CHAPTER THIRTY-SIX</h2>
+    <h3>TOM DEPARTS</h3>
+    <p>Content of chapter 36.</p>
+    <h2>CHAPTER FIFTY-FOUR</h2>
+    <p>Content of chapter 54.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c.content for c in chunks if c.kind == "heading"]
+
+    # All chapters must be recognized (subtitle merged into chapter title)
+    assert any("CHAPTER THIRTY" in h and "DESCRIPTIVE" in h for h in headings)
+    assert any("CHAPTER THIRTY-SIX" in h and "TOM DEPARTS" in h for h in headings)
+    assert "CHAPTER FIFTY-FOUR" in headings
+    # Subtitles should NOT appear as separate headings
+    assert "A DESCRIPTIVE SUBTITLE" not in headings
+    assert "TOM DEPARTS" not in headings
+
+
+def test_preface_does_not_nest_chapters_as_container():
+    """Regression: standalone PREFACE must not act as a container parent.
+
+    In Bleak House (PG 1023), h3 PREFACE was nesting all h4 chapters under
+    it because the rank gap was exactly 1.  Front-matter headings should
+    remain siblings of chapters.
+    """
+    html = _make_html("""
+    <h3>PREFACE</h3>
+    <p>Preface text.</p>
+    <h4>CHAPTER I</h4>
+    <p>Content of chapter 1.</p>
+    <h4>CHAPTER II</h4>
+    <p>Content of chapter 2.</p>
+    <h4>CHAPTER III</h4>
+    <p>Content of chapter 3.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    # PREFACE and chapters should be at the same div1 level, not nested
+    preface = [c for c in headings if c.content == "PREFACE"][0]
+    ch1 = [c for c in headings if re.match(r"CHAPTER I\b(?!I)", c.content)][0]
+    assert preface.div2 == "", "PREFACE should be at div1 level"
+    assert ch1.div2 == "", "Chapter should be at div1 level, not nested under PREFACE"
+
+
+def test_preface_to_volume_not_broad_container():
+    """Regression: 'PREFACE TO THE FIRST VOLUME' must not act as a VOLUME container.
+
+    In Master Humphrey's Clock (PG 588), the embedded ordinal keyword match
+    classified 'PREFACE TO THE FIRST VOLUME' as a broad 'volume' keyword,
+    causing all subsequent sections to be nested under it.
+    """
+    html = _make_html("""
+    <h2>PREFACE TO THE FIRST VOLUME</h2>
+    <p>Preface text.</p>
+    <h2>PREFACE TO THE SECOND VOLUME</h2>
+    <p>Second preface text.</p>
+    <h2>I</h2>
+    <h3>THE CLOCK-CASE</h3>
+    <p>Content of section I.</p>
+    <h2>II</h2>
+    <p>Content of section II.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    sec_i = [c for c in headings if c.content == "I"][0]
+    # Section I should be at div1, not nested under a PREFACE
+    assert sec_i.div1 == "I"
+    assert sec_i.div2 == ""
+
+
+def test_non_keyword_headings_nest_chapters_by_rank():
+    """Regression: Sketches by Boz nesting — h2 'OUR PARISH' must nest h3 chapters.
+
+    Non-keyword headings like 'OUR PARISH' at h2 should serve as containers
+    for h3 chapters when the rank gap is exactly 1, via infer_from_rank.
+    """
+    html = _make_html("""
+    <h2>OUR PARISH</h2>
+    <h3>CHAPTER I—THE BEADLE</h3>
+    <p>Content of chapter 1.</p>
+    <h3>CHAPTER II—THE CURATE</h3>
+    <p>Content of chapter 2.</p>
+    <h2>SCENES</h2>
+    <h3>CHAPTER I—THE STREETS</h3>
+    <p>Content of scenes chapter 1.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    ch1 = [c for c in headings if "BEADLE" in c.content][0]
+    assert ch1.div1 == "OUR PARISH", "Chapter should nest under OUR PARISH"
+    assert "CHAPTER" in ch1.div2, "Chapter should be at div2 level"
+
+    scenes_ch1 = [c for c in headings if "STREETS" in c.content][0]
+    assert scenes_ch1.div1 == "SCENES", "Chapter should nest under SCENES"
+
+
+# ------------------------------------------------------------------
+# Bare chapter description paragraph merging (cf. PG 968, Chuzzlewit)
+# ------------------------------------------------------------------
+
+
+def test_bare_chapter_description_merged_into_heading():
+    """Regression: ALL-CAPS description <p> after bare chapter heading merges.
+
+    Books like Martin Chuzzlewit have "CHAPTER I" followed by a <p> like
+    "INTRODUCTORY, CONCERNING THE PEDIGREE…" which should merge into the
+    chapter heading text so all chapters have consistent descriptions.
+    """
+    html = _make_html("""
+    <h2><a id="ch1"></a>CHAPTER I</h2>
+    <p>INTRODUCTORY, CONCERNING THE PEDIGREE OF THE CHUZZLEWIT FAMILY</p>
+    <p>Body text of chapter one.</p>
+    <h2><a id="ch2"></a>CHAPTER II</h2>
+    <p>WHEREIN CERTAIN PERSONS ARE PRESENTED TO THE READER</p>
+    <p>Body text of chapter two.</p>
+    <h2><a id="ch3"></a>CHAPTER III MAKES THE READER'S ACQUAINTANCE</h2>
+    <p>Body text of chapter three.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    texts = [c for c in chunks if c.kind == "text"]
+
+    # Bare chapters should have description merged in.
+    assert "INTRODUCTORY" in headings[0].content
+    assert "WHEREIN" in headings[1].content
+    # Chapter III already has a subtitle — should be untouched.
+    assert headings[2].content == "CHAPTER III MAKES THE READER'S ACQUAINTANCE"
+
+    # Description paragraphs must NOT appear as body text chunks.
+    all_text = " ".join(c.content for c in texts)
+    assert "INTRODUCTORY" not in all_text
+    assert "WHEREIN" not in all_text
+    # Actual body text should still be present.
+    assert "Body text of chapter one" in all_text
+    assert "Body text of chapter two" in all_text
+
+
+def test_mixed_case_description_not_merged():
+    """Description paragraphs that are NOT all-caps should remain as body text."""
+    html = _make_html("""
+    <h2><a id="ch1"></a>CHAPTER I</h2>
+    <p>This is a normal mixed-case paragraph about the first chapter.</p>
+    <p>More body text.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    texts = [c for c in chunks if c.kind == "text"]
+
+    assert headings[0].content == "CHAPTER I"
+    assert any("normal mixed-case" in c.content for c in texts)
+
+
+def test_section_letter_indices_parsed_as_structural():
+    """Regression: SECTION A, SECTION B etc. are valid structural headings.
+
+    Mudfog Papers uses SECTION A–D for report sub-sections.
+    """
+    html = _make_html("""
+    <h2><a id="report"></a>FULL REPORT OF THE FIRST MEETING</h2>
+    <h3><a id="sa"></a>SECTION A. ZOOLOGY AND BOTANY</h3>
+    <p>Content of section A.</p>
+    <h3><a id="sb"></a>SECTION B. ANATOMY AND MEDICINE</h3>
+    <p>Content of section B.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    sa = [c for c in headings if "SECTION A" in c.content][0]
+    sb = [c for c in headings if "SECTION B" in c.content][0]
+    assert sa.div1 == "FULL REPORT OF THE FIRST MEETING"
+    assert sb.div1 == "FULL REPORT OF THE FIRST MEETING"
