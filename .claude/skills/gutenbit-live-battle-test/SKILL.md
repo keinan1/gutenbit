@@ -40,33 +40,71 @@ Before editing code:
 Start with the real CLI because parser defects usually reveal themselves in visible structure
 before they are obvious in code.
 
-Run:
+Run these commands in order:
 
 ```bash
 uv run gutenbit add <pg_id>
+
+# Quick sanity check — top-level structure only
 uv run gutenbit toc <pg_id>
+
+# PRIMARY DIAGNOSTIC VIEW — every heading at every level
+uv run gutenbit toc <pg_id> --expand all
+
+# Machine-readable — for counting sections and checking parent-child relationships
+uv run gutenbit toc <pg_id> --expand all --json
+
 uv run gutenbit view <pg_id>
 uv run gutenbit search "<query>" --book <pg_id>
 ```
 
-Use `toc` as the primary structural signal. Use `view` and `search` to confirm whether the
-bad structure also damages navigation or search context.
+The `--expand all` output is the primary diagnostic view. The default depth-2 view hides
+many classes of bug: chapters that should nest under a PART/BOOK but don't, subtitle or
+description lines that appear as orphan siblings, and front-matter headings that swallowed
+everything below them. Always inspect `--expand all` before concluding the structure is correct.
 
-While inspecting output, write down:
+The `--json` output lets you programmatically count sections at each depth and verify
+parent-child relationships, which catches nesting bugs that are hard to spot visually in a
+long TOC.
 
-- missing sections
-- extra/synthetic sections
-- wrong nesting between `div1` / `div2` / `div3`
-- front matter or closing matter that disappeared
-- noisy attribution/publisher text that was promoted into headings
-- cases where the parser kept chapter headings but lost higher-level structure such as PART / BOOK / ACT
+Use `view` and `search` to confirm whether the bad structure also damages navigation or
+search context.
 
-### 3. Compare against raw Gutenberg HTML before forming a fix
+### 3. Structured TOC inspection checklist
+
+After running `toc --expand all`, systematically check each of these:
+
+1. **Depth distribution** — Are chapters at the expected depth? If there are PARTs or BOOKs, chapters should be depth 2, not depth 1.
+2. **Heading count** — Does the number of chapter-level entries match what the raw HTML has? Count them.
+3. **Front-matter placement** — Is PREFACE / DEDICATION / etc. a sibling of the first structural heading, not a parent that nests everything under it?
+4. **Orphan entries** — Are there single-line entries at unexpected depths that look like subtitle fragments or description text that didn't merge into their chapter heading?
+5. **Terminal entries** — Does the TOC end with the right closing matter (APPENDIX, NOTE, GLOSSARY, etc.)?
+6. **Heading text completeness** — For chapters with subtitles or descriptions, is the full heading text present, or was it split into separate TOC entries?
+
+Write down every anomaly before looking at code.
+
+### 4. Compare against raw Gutenberg HTML before forming a fix
 
 Do not infer the correct structure from intuition or another edition. Confirm it from the
 downloaded HTML for the same Gutenberg work.
 
-Use a small Python inspection snippet when needed:
+First, dump the raw HTML heading tags to see the ground-truth hierarchy:
+
+```python
+from gutenbit.download import download_html
+from bs4 import BeautifulSoup
+
+html = download_html(pg_id)
+soup = BeautifulSoup(html, "html.parser")
+
+for tag in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+    print(f"{tag.name}  {tag.get_text(strip=True)[:80]}")
+```
+
+This shows exactly what heading tags exist and at what HTML rank. The gap between this output
+and `toc --expand all` is exactly where the bugs live.
+
+Then inspect the parsed chunks to see how the parser interpreted them:
 
 ```python
 from gutenbit.download import download_html
@@ -81,15 +119,15 @@ for heading in headings[:80]:
     print(heading.div1, heading.div2, heading.div3, heading.content)
 ```
 
-Also inspect the raw HTML directly to find the source anchors and heading tags that Gutenbit
-should preserve. Confirm:
+Compare these two outputs and confirm:
 
 - which headings are real structure
 - which text is only contents scaffolding, attribution, or decorative matter
 - whether the TOC is incomplete and body-heading refinement is required
 - whether fallback heading scanning is over-triggering on speaker names, Roman numerals, or dramatic dialogue labels
+- whether subtitle or description elements following chapter headings were merged or left as orphans
 
-### 4. Classify the failure before changing code
+### 5. Classify the failure before changing code
 
 Map the bug to an existing failure class from [references/kei-17-corpus.md](references/kei-17-corpus.md).
 Most new regressions fit one of these families:
@@ -100,11 +138,15 @@ Most new regressions fit one of these families:
 - lost multi-level structure
 - catastrophic play parsing
 - attribution or publisher noise promoted into headings
+- unrecognized index vocabulary (number words, letter indices, ordinals the parser doesn't know)
+- unmerged subtitle or description (subtitle/description line appears as a separate TOC entry instead of merging into its chapter heading)
+- front-matter nesting contamination (a front-matter heading becomes a container that nests all subsequent chapters under it)
+- non-keyword heading nesting failure (chapters don't nest under structurally valid parent headings because the parent lacks a keyword like PART/BOOK)
 
 If the case does not fit an existing family, define the new family in structural terms, not
 title-specific terms.
 
-### 5. Design the smallest general fix
+### 6. Design the smallest general fix
 
 Prefer fixes that improve the parser's structural rules rather than special-casing a single book.
 
@@ -126,7 +168,7 @@ Reject fixes that:
 State the intended invariant before editing code. Example: "preserve part-level headings as
 standalone sections instead of merging them into the first chapter heading."
 
-### 6. Add focused regression coverage
+### 7. Add focused regression coverage
 
 Use `tests/test_battle.py` for live Gutenberg regression coverage. Follow the existing style:
 
@@ -142,17 +184,21 @@ Examples of good test shapes:
 - assert the exact closing heading slice when an epilogue or note was missing
 - assert that garbage headings are absent while the real headings remain
 - assert one or two representative nested headings for large multi-level works instead of snapshotting hundreds of headings
+- when the bug is a merge failure, assert that the merged heading **contains the subtitle/description text**, not just that the chapter exists
+- when the bug is a nesting failure, assert the `div1`/`div2` relationship explicitly and also assert the **count** of entries at each nesting level
+- use `toc --expand all --json` output as a reference for what the test assertions should look like
 
 Do not add broad snapshots that are hard to maintain and do not isolate the structural invariant.
 
-### 7. Verify in widening rings
+### 8. Verify in widening rings
 
 After the code change:
 
-1. Re-run the live CLI commands on the target book.
+1. Re-run the live CLI commands on the target book, including `toc --expand all`.
 2. Re-run the specific network regression that covers the target behavior.
 3. Re-run the full non-network suite.
 4. Re-run the full network battle corpus.
+5. Run a JSON-based machine check on the target book.
 
 Use:
 
@@ -162,11 +208,24 @@ uv run pytest
 uv run pytest -m network
 ```
 
+For the machine check, verify section counts and depth distribution via JSON:
+
+```bash
+uv run gutenbit toc <pg_id> --expand all --json | python3 -c "
+import json, sys
+toc = json.load(sys.stdin)
+# Verify: section count at each depth, no orphan fragments,
+# front matter is a sibling not a parent, etc.
+for entry in toc:
+    print(entry.get('depth', 0), entry.get('heading', ''))
+"
+```
+
 Treat `uv run pytest -m network` as mandatory before closing the work unless network access
 is unavailable. The goal is not only to fix the new book, but to prove the parser still holds
 across the existing live corpus.
 
-### 8. Report the result in parser terms
+### 9. Report the result in parser terms
 
 When documenting the outcome, summarize:
 
