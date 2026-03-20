@@ -83,6 +83,9 @@ _MAX_DESCRIPTION_PARAGRAPH_LEN = 300
 # Minimum fraction of alpha chars that must be uppercase for the paragraph
 # to be considered an ALL-CAPS description (allows minor OCR artifacts).
 _MIN_UPPERCASE_RATIO = 0.9
+# Minimum number of bare Roman numeral TOC links required to accept them
+# as primary structural entries (e.g. Lady Susan's epistolary letters).
+_MIN_ROMAN_NUMERAL_TOC_ENTRIES = 5
 
 # ---------------------------------------------------------------------------
 # Compiled regex patterns (used only within this module)
@@ -136,7 +139,6 @@ def _parse_toc_sections(
     # epistolary letters) and should be accepted as sections.  When
     # there are few (e.g. Heart of Darkness's 3 parts), the heading-
     # scan fallback provides better structure by including the title.
-    _MIN_ROMAN_NUMERAL_TOC_ENTRIES = 5
     roman_numeral_count = sum(
         1
         for link in toc_links

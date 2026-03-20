@@ -2602,3 +2602,34 @@ def test_conclusion_nests_under_title_with_roman_numeral_siblings():
 
     conc = next(h for h in headings if h.content == "CONCLUSION")
     assert conc is not None
+
+
+def test_few_roman_numeral_toc_links_rejected():
+    """When there are few (<=5) bare Roman numeral TOC links, they are rejected.
+
+    Works like Heart of Darkness (3 parts) should fall through to heading-scan
+    so the title is included as a structural heading.
+    """
+    toc_links = "\n".join(
+        f'    <p><a href="#p{i}" class="pginternal">{num}</a></p>'
+        for i, num in enumerate(["I", "II", "III"], 1)
+    )
+    body_headings = "\n".join(
+        f'    <h2><a id="p{i}"></a>{num}</h2>\n    <p>Part {num} content.</p>'
+        for i, num in enumerate(["I", "II", "III"], 1)
+    )
+    html = _make_html(f"""
+    {toc_links}
+    <h1>HEART OF DARKNESS</h1>
+    {body_headings}
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    heading_texts = [h.content for h in headings]
+
+    # The title should appear as a structural heading (heading-scan fallback).
+    assert "HEART OF DARKNESS" in heading_texts
+    # Bare Roman numerals should nest under the title, not be flat div1 sections.
+    roman_headings = [h for h in headings if h.content in ("I", "II", "III")]
+    for h in roman_headings:
+        assert h.div1 == "HEART OF DARKNESS"
