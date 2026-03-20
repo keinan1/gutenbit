@@ -2512,3 +2512,55 @@ def test_section_letter_indices_parsed_as_structural():
     sb = [c for c in headings if "SECTION B" in c.content][0]
     assert sa.div1 == "FULL REPORT OF THE FIRST MEETING"
     assert sb.div1 == "FULL REPORT OF THE FIRST MEETING"
+
+
+def test_note_heading_not_merged_as_chapter_subtitle():
+    """Regression: 'A NOTE ON THE TEXT' must not merge into the preceding chapter.
+
+    In PG 121 (Northanger Abbey), _merge_bare_heading_pairs treated
+    'A NOTE ON THE TEXT' (h2) as a subtitle of 'CHAPTER 31' (h2) because
+    _next_heading_is_subtitle() had no guard for note/apparatus headings.
+    """
+    html = _make_html("""
+    <p><a href="#ch30" class="pginternal">CHAPTER 30</a></p>
+    <p><a href="#ch31" class="pginternal">CHAPTER 31</a></p>
+    <p><a href="#note" class="pginternal">A NOTE ON THE TEXT</a></p>
+    <h2><a id="ch30"></a>CHAPTER 30</h2>
+    <p>Content of chapter thirty.</p>
+    <h2><a id="ch31"></a>CHAPTER 31</h2>
+    <p>Content of chapter thirty-one.</p>
+    <h2><a id="note"></a>A NOTE ON THE TEXT</h2>
+    <p>This edition was prepared from the manuscript.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    heading_texts = [h.content for h in headings]
+
+    assert "CHAPTER 31" in heading_texts
+    assert "A NOTE ON THE TEXT" in heading_texts
+    # Must NOT merge into a single heading.
+    assert "CHAPTER 31 A NOTE ON THE TEXT" not in heading_texts
+    # Both must be at div1 level (siblings, not nested).
+    ch31 = next(h for h in headings if h.content == "CHAPTER 31")
+    note = next(h for h in headings if h.content == "A NOTE ON THE TEXT")
+    assert ch31.div2 == ""
+    assert note.div2 == ""
+
+
+def test_note_on_sources_not_merged_as_subtitle():
+    """'NOTE ON THE SOURCES' is editorial apparatus, not a chapter subtitle."""
+    html = _make_html("""
+    <p><a href="#ch10" class="pginternal">CHAPTER X</a></p>
+    <p><a href="#note" class="pginternal">NOTE ON THE SOURCES</a></p>
+    <h2><a id="ch10"></a>CHAPTER X</h2>
+    <p>Chapter content.</p>
+    <h2><a id="note"></a>NOTE ON THE SOURCES</h2>
+    <p>The editor consulted the following manuscripts.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    heading_texts = [h.content for h in headings]
+
+    assert "CHAPTER X" in heading_texts
+    assert "NOTE ON THE SOURCES" in heading_texts
+    assert "CHAPTER X NOTE ON THE SOURCES" not in heading_texts
