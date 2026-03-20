@@ -125,6 +125,7 @@ _ENUMERATED_HEADING_PREFIX_RE = re.compile(
 )
 _LIST_ITEM_MARKER_RE = re.compile(r"(?:^|\s)(?:[IVXLCDM]+|[0-9]+)\.\s+\S", re.IGNORECASE)
 _STANDALONE_APPARATUS_HEADING_RE = re.compile(r"^SYNOPSIS OF\b", re.IGNORECASE)
+_NOTE_APPARATUS_HEADING_RE = re.compile(r"^(?:a\s+)?notes?\b", re.IGNORECASE)
 _FONT_SIZE_STYLE_RE = re.compile(
     r"font-size\s*:\s*([0-9.]+)\s*(%|em|rem|px)",
     re.IGNORECASE,
@@ -308,7 +309,7 @@ def _next_heading_is_subtitle(heading_text: str) -> bool:
         return False
     # Headings starting with "NOTE" / "A NOTE" / "NOTES" are editorial
     # apparatus, not chapter subtitles.
-    return not re.match(r"^(?:a\s+)?notes?\b", heading_text, re.IGNORECASE)
+    return not _NOTE_APPARATUS_HEADING_RE.match(heading_text)
 
 
 def _normalize_heading_subtitle(heading_text: str) -> str:
