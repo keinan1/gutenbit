@@ -1060,16 +1060,27 @@ def test_beyond_good_and_evil_keeps_preface_and_nine_chapters():
     assert heading_texts[-1] == "FROM THE HEIGHTS"
 
 
-def test_grimms_fairy_tales_nests_stories_under_title():
+def test_grimms_fairy_tales_flattens_stories_to_div1():
     headings = _headings(2591)
 
     assert headings[0].content == "THE BROTHERS GRIMM FAIRY TALES"
-    assert headings[0].div2 == ""
 
-    stories = [h for h in headings if h.div2]
+    stories = [h for h in headings if h.content != "THE BROTHERS GRIMM FAIRY TALES"]
     assert len(stories) == 62
     assert stories[0].content == "THE GOLDEN BIRD"
     assert stories[-1].content == "SNOW-WHITE AND ROSE-RED"
+    assert all(h.div2 == "" for h in stories)
+
+
+def test_johnsons_journey_flattens_place_name_chapters_to_div1():
+    headings = _headings(2064)
+
+    assert headings[0].content == "A JOURNEY TO THE WESTERN ISLANDS OF SCOTLAND"
+    places = [h for h in headings if h.content != headings[0].content]
+    assert len(places) == 30
+    assert places[0].content == "INCH KEITH"
+    assert places[-1].content == "INCH KENNETH"
+    assert all(h.div2 == "" for h in places)
 
 
 def test_confessions_of_augustine_keeps_thirteen_books():

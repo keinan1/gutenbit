@@ -1196,17 +1196,6 @@ _LEADING_INDEX_RE = re.compile(
 )
 
 
-def _is_enumerated_or_keyword_heading(heading_text: str) -> bool:
-    """True when *heading_text* looks like a numbered or keyword section heading.
-
-    Matches chapter/book keywords (``CHAPTER I``), standalone structural labels
-    (``EPILOGUE``), pure number headings (``III``), and headings that start with
-    an index token (``I. THE LIFE AND DEATH OF SCYLD``).
-    """
-    if _is_refinement_heading(heading_text):
-        return True
-    return bool(_LEADING_INDEX_RE.match(heading_text.strip()))
-
 
 def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Section]:
     """Flatten title-like headings that wrap structural children.
@@ -1215,10 +1204,7 @@ def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Sectio
     level above enumerated chapters, it is a work title — not a structural
     container.  Promote its children so chapters become peers at min_level.
 
-    Guards:
-    * ≥ 3 title-like wrappers at *min_level* → anthology (Shakespeare) → skip.
-    * Majority of direct children are *not* enumerated → titled collection
-      (Grimm's Fairy Tales) → skip.
+    Guard: ≥ 2 title-like wrappers at *min_level* → anthology (Shakespeare) → skip.
     """
     if len(sections) < 2:
         return sections
@@ -1247,8 +1233,7 @@ def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Sectio
     if not wrapper_indices or len(wrapper_indices) >= 2:
         return sections
 
-    # For each wrapper, verify that the majority of direct children are
-    # enumerated/keyword-bearing (not independently-titled works).
+    # Flatten: shift every descendant of each wrapper up by 1.
     new_levels = [s.level for s in sections]
     changed = False
 
@@ -1260,21 +1245,14 @@ def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Sectio
                 span_end = next_idx
                 break
 
-        direct_children = [
-            sections[i]
+        # Require at least one direct child.
+        has_child = any(
+            sections[i].level == min_level + 1
             for i in range(wrapper_idx + 1, span_end)
-            if sections[i].level == min_level + 1
-        ]
-        if not direct_children:
+        )
+        if not has_child:
             continue
 
-        enumerated_count = sum(
-            1 for c in direct_children if _is_enumerated_or_keyword_heading(c.heading_text)
-        )
-        if enumerated_count <= len(direct_children) // 2:
-            continue  # Majority are titled → anthology-like, skip.
-
-        # Flatten: shift every descendant up by 1.
         for i in range(wrapper_idx + 1, span_end):
             new_levels[i] = max(1, new_levels[i] - 1)
             changed = True

@@ -47,7 +47,7 @@ from gutenbit.html_chunker._sections import (
 # ---------------------------------------------------------------------------
 
 HTML_PARSER_BACKEND = "lxml"
-CHUNKER_VERSION = 32
+CHUNKER_VERSION = 33
 
 
 @dataclass(frozen=True, slots=True)

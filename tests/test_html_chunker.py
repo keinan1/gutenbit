@@ -180,8 +180,8 @@ def test_font_size_toc_link_is_div1():
     assert len(headings) == 2
     assert headings[0].div1 == "OLD TESTAMENT"
     assert headings[0].div2 == ""
-    assert headings[1].div1 == "OLD TESTAMENT"
-    assert headings[1].div2 == "GENESIS"
+    assert headings[1].div1 == "GENESIS"
+    assert headings[1].div2 == ""
 
 
 def test_keyword_based_hierarchy_without_bold():
@@ -624,8 +624,8 @@ def test_single_title_wrapping_roman_numerals_is_flattened():
     assert all(h.div2 == "" for h in headings)
 
 
-def test_single_title_wrapping_titled_stories_is_not_flattened():
-    """A lone title wrapping titled stories (anthology) should keep nesting."""
+def test_single_title_wrapping_titled_stories_is_flattened():
+    """A lone title wrapping titled (non-enumerated) stories should be flattened."""
     html = _make_html("""
     <h1><a id="title"></a>FAIRY TALES</h1>
     <h2><a id="s1"></a>THE GOLDEN BIRD</h2>
@@ -639,8 +639,8 @@ def test_single_title_wrapping_titled_stories_is_not_flattened():
     headings = [c for c in chunks if c.kind == "heading"]
 
     assert headings[0].div1 == "FAIRY TALES"
-    assert headings[1].div1 == "FAIRY TALES"
-    assert headings[1].div2 == "THE GOLDEN BIRD"
+    assert headings[1].div1 == "THE GOLDEN BIRD"
+    assert headings[1].div2 == ""
 
 
 def test_illustration_links_ignored():
@@ -924,8 +924,8 @@ def test_bracketed_numeric_heading_keeps_closing_bracket():
     headings = [c for c in chunks if c.kind == "heading"]
 
     assert [h.content for h in headings] == ["— I —", "[ 1 ]"]
-    assert headings[1].div1 == "— I —"
-    assert headings[1].div2 == "[ 1 ]"
+    assert headings[1].div1 == "[ 1 ]"
+    assert headings[1].div2 == ""
 
 
 def test_paragraph_from_img_alt_drop_cap():
