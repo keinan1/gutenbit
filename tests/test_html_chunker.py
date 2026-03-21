@@ -180,8 +180,8 @@ def test_font_size_toc_link_is_div1():
     assert len(headings) == 2
     assert headings[0].div1 == "OLD TESTAMENT"
     assert headings[0].div2 == ""
-    assert headings[1].div1 == "OLD TESTAMENT"
-    assert headings[1].div2 == "GENESIS"
+    assert headings[1].div1 == "GENESIS"
+    assert headings[1].div2 == ""
 
 
 def test_keyword_based_hierarchy_without_bold():
@@ -582,6 +582,67 @@ def test_single_work_title_is_not_promoted_above_parts():
     assert headings[2].div2 == "CHAPTER I"
 
 
+def test_single_title_wrapping_keyword_chapters_is_flattened():
+    """A lone title-like heading wrapping keyword chapters should be flattened.
+
+    The title-like h1 may be dropped entirely by the heading-scan pipeline;
+    the key assertion is that chapters are div1 peers, not div2.
+    """
+    html = _make_html("""
+    <h1><a id="title"></a>MY NOVEL</h1>
+    <h2><a id="c1"></a>CHAPTER I</h2>
+    <p>First chapter.</p>
+    <h2><a id="c2"></a>CHAPTER II</h2>
+    <p>Second chapter.</p>
+    <h2><a id="c3"></a>CHAPTER III</h2>
+    <p>Third chapter.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    assert len(headings) >= 3
+    chapters = [h for h in headings if h.content.startswith("CHAPTER")]
+    assert len(chapters) == 3
+    assert all(h.div2 == "" for h in chapters)
+
+
+def test_single_title_wrapping_roman_numerals_is_flattened():
+    """A lone title-like heading wrapping bare Roman numerals should be flattened."""
+    html = _make_html("""
+    <h1><a id="title"></a>SHORT STORY</h1>
+    <h2><a id="s1"></a>I</h2>
+    <p>Part one.</p>
+    <h2><a id="s2"></a>II</h2>
+    <p>Part two.</p>
+    <h2><a id="s3"></a>III</h2>
+    <p>Part three.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    assert len(headings) == 4
+    assert all(h.div2 == "" for h in headings)
+
+
+def test_single_title_wrapping_titled_stories_is_flattened():
+    """A lone title wrapping titled (non-enumerated) stories should be flattened."""
+    html = _make_html("""
+    <h1><a id="title"></a>FAIRY TALES</h1>
+    <h2><a id="s1"></a>THE GOLDEN BIRD</h2>
+    <p>Once upon a time.</p>
+    <h2><a id="s2"></a>HANSEL AND GRETEL</h2>
+    <p>Near a great forest.</p>
+    <h2><a id="s3"></a>SNOW WHITE</h2>
+    <p>A queen sat sewing.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    assert headings[0].div1 == "FAIRY TALES"
+    assert headings[1].div1 == "THE GOLDEN BIRD"
+    assert headings[1].div2 == ""
+
+
 def test_illustration_links_ignored():
     html = _make_html("""
     <p><a href="#stave1" class="pginternal">MARLEY'S GHOST</a></p>
@@ -863,8 +924,8 @@ def test_bracketed_numeric_heading_keeps_closing_bracket():
     headings = [c for c in chunks if c.kind == "heading"]
 
     assert [h.content for h in headings] == ["— I —", "[ 1 ]"]
-    assert headings[1].div1 == "— I —"
-    assert headings[1].div2 == "[ 1 ]"
+    assert headings[1].div1 == "[ 1 ]"
+    assert headings[1].div2 == ""
 
 
 def test_paragraph_from_img_alt_drop_cap():
@@ -2496,7 +2557,9 @@ def test_mixed_case_description_not_merged():
 def test_section_letter_indices_parsed_as_structural():
     """Regression: SECTION A, SECTION B etc. are valid structural headings.
 
-    Mudfog Papers uses SECTION A–D for report sub-sections.
+    Mudfog Papers uses SECTION A–D for report sub-sections.  In a minimal
+    heading-scan context (no sibling chapters), the lone title-like parent
+    is flattened so all headings land at div1.
     """
     html = _make_html("""
     <h2><a id="report"></a>FULL REPORT OF THE FIRST MEETING</h2>
@@ -2510,5 +2573,129 @@ def test_section_letter_indices_parsed_as_structural():
 
     sa = [c for c in headings if "SECTION A" in c.content][0]
     sb = [c for c in headings if "SECTION B" in c.content][0]
-    assert sa.div1 == "FULL REPORT OF THE FIRST MEETING"
-    assert sb.div1 == "FULL REPORT OF THE FIRST MEETING"
+    assert len(headings) == 3
+    assert sa.div1 == "SECTION A. ZOOLOGY AND BOTANY"
+    assert sb.div1 == "SECTION B. ANATOMY AND MEDICINE"
+
+
+def test_note_heading_not_merged_as_chapter_subtitle():
+    """Regression: 'A NOTE ON THE TEXT' must not merge into the preceding chapter.
+
+    In PG 121 (Northanger Abbey), _merge_bare_heading_pairs treated
+    'A NOTE ON THE TEXT' (h2) as a subtitle of 'CHAPTER 31' (h2) because
+    _next_heading_is_subtitle() had no guard for note/apparatus headings.
+    """
+    html = _make_html("""
+    <p><a href="#ch30" class="pginternal">CHAPTER 30</a></p>
+    <p><a href="#ch31" class="pginternal">CHAPTER 31</a></p>
+    <p><a href="#note" class="pginternal">A NOTE ON THE TEXT</a></p>
+    <h2><a id="ch30"></a>CHAPTER 30</h2>
+    <p>Content of chapter thirty.</p>
+    <h2><a id="ch31"></a>CHAPTER 31</h2>
+    <p>Content of chapter thirty-one.</p>
+    <h2><a id="note"></a>A NOTE ON THE TEXT</h2>
+    <p>This edition was prepared from the manuscript.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    heading_texts = [h.content for h in headings]
+
+    assert "CHAPTER 31" in heading_texts
+    assert "A NOTE ON THE TEXT" in heading_texts
+    # Must NOT merge into a single heading.
+    assert "CHAPTER 31 A NOTE ON THE TEXT" not in heading_texts
+    # Both must be at div1 level (siblings, not nested).
+    ch31 = next(h for h in headings if h.content == "CHAPTER 31")
+    note = next(h for h in headings if h.content == "A NOTE ON THE TEXT")
+    assert ch31.div2 == ""
+    assert note.div2 == ""
+
+
+def test_note_on_sources_not_merged_as_subtitle():
+    """'NOTE ON THE SOURCES' is editorial apparatus, not a chapter subtitle."""
+    html = _make_html("""
+    <p><a href="#ch10" class="pginternal">CHAPTER X</a></p>
+    <p><a href="#note" class="pginternal">NOTE ON THE SOURCES</a></p>
+    <h2><a id="ch10"></a>CHAPTER X</h2>
+    <p>Chapter content.</p>
+    <h2><a id="note"></a>NOTE ON THE SOURCES</h2>
+    <p>The editor consulted the following manuscripts.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    heading_texts = [h.content for h in headings]
+
+    assert "CHAPTER X" in heading_texts
+    assert "NOTE ON THE SOURCES" in heading_texts
+    assert "CHAPTER X NOTE ON THE SOURCES" not in heading_texts
+
+
+def test_conclusion_nests_under_title_with_roman_numeral_siblings():
+    """Bare Roman numeral TOC links produce flat sections alongside CONCLUSION.
+
+    In PG 946 (Lady Susan), the HTML has an h1 title (not in the TOC)
+    followed by h2 Roman-numeral letters (I–XLI) and h2 CONCLUSION, all
+    referenced by bare Roman numeral TOC links.  The TOC parser should
+    accept these links and produce flat div1 sections — no nesting under
+    the h1 title.
+    """
+    toc_links = "\n".join(
+        f'    <p><a href="#l{i}" class="pginternal">{num}</a></p>'
+        for i, num in enumerate(["I", "II", "III", "IV", "V", "VI", "VII"], 1)
+    )
+    body_headings = "\n".join(
+        f'    <h2><a id="l{i}"></a>{num}</h2>\n    <p>Letter {num}.</p>'
+        for i, num in enumerate(["I", "II", "III", "IV", "V", "VI", "VII"], 1)
+    )
+    html = _make_html(f"""
+    {toc_links}
+    <p><a href="#conc" class="pginternal">CONCLUSION</a></p>
+    <h1>LADY SUSAN</h1>
+    {body_headings}
+    <h2><a id="conc"></a>CONCLUSION</h2>
+    <p>This correspondence was collected.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    # Roman numeral letters are accepted from TOC and rendered as flat
+    # div1 sections (no nesting under the h1 title).
+    assert len(headings) == 8  # I–VII + CONCLUSION
+    assert headings[0].content == "I"
+    assert headings[6].content == "VII"
+
+    conc = next(h for h in headings if h.content == "CONCLUSION")
+    assert conc is not None
+
+    # All headings should be flat div1 — no empty-div1 gaps.
+    assert all(h.div2 == "" for h in headings)
+    assert all(h.div1 != "" for h in headings)
+
+
+def test_few_roman_numeral_toc_links_accepted():
+    """Bare Roman numeral TOC links are accepted as primary sections regardless of count.
+
+    Works like Heart of Darkness (3 parts) have I, II, III as the top-level
+    divisions.  The work title is not a section — it names the whole work.
+    """
+    toc_links = "\n".join(
+        f'    <p><a href="#p{i}" class="pginternal">{num}</a></p>'
+        for i, num in enumerate(["I", "II", "III"], 1)
+    )
+    body_headings = "\n".join(
+        f'    <h2><a id="p{i}"></a>{num}</h2>\n    <p>Part {num} content.</p>'
+        for i, num in enumerate(["I", "II", "III"], 1)
+    )
+    html = _make_html(f"""
+    {toc_links}
+    <h1>HEART OF DARKNESS</h1>
+    {body_headings}
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+    heading_texts = [h.content for h in headings]
+
+    # Bare Roman numerals are the primary structure — no count threshold.
+    assert heading_texts == ["I", "II", "III"]
+    # The work title is not a div1 section.
+    assert "HEART OF DARKNESS" not in heading_texts

@@ -164,10 +164,7 @@ def _is_structural_toc_link(link: Tag, link_text: str, *, doc_index: _DocumentIn
     if _NUMERIC_LINK_TEXT_RE.fullmatch(link_text):
         return False
     # Filter front-matter headings (CONTENTS, ILLUSTRATIONS, etc.)
-    if _is_non_structural_heading_text(link_text):
-        return False
-    # Filter bare roman numerals (I, II, III — sub-section markers, not chapters)
-    return not _ROMAN_NUMERAL_RE.fullmatch(link_text)
+    return not _is_non_structural_heading_text(link_text)
 
 
 def _toc_entry_matches_heading(entry_text: str, heading_text: str) -> bool:

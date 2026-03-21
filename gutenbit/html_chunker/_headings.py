@@ -125,6 +125,12 @@ _ENUMERATED_HEADING_PREFIX_RE = re.compile(
 )
 _LIST_ITEM_MARKER_RE = re.compile(r"(?:^|\s)(?:[IVXLCDM]+|[0-9]+)\.\s+\S", re.IGNORECASE)
 _STANDALONE_APPARATUS_HEADING_RE = re.compile(r"^SYNOPSIS OF\b", re.IGNORECASE)
+# Matches headings starting with "NOTE" / "A NOTE" / "NOTES" — editorial
+# apparatus that should never merge as a chapter subtitle.  Broad enough to
+# catch all note-apparatus patterns; titles like "Notes from Underground"
+# would be caught only if preceded by a bare chapter heading (unlikely in
+# practice since such titles appear as standalone structural divisions).
+_NOTE_APPARATUS_HEADING_RE = re.compile(r"^(?:a\s+)?notes?\b", re.IGNORECASE)
 _FONT_SIZE_STYLE_RE = re.compile(
     r"font-size\s*:\s*([0-9.]+)\s*(%|em|rem|px)",
     re.IGNORECASE,
@@ -304,7 +310,11 @@ def _next_heading_is_subtitle(heading_text: str) -> bool:
     if _EMBEDDED_HEADING_RE.search(heading_text):
         return False
     # EPILOGUE, PROLOGUE, APPENDIX are almost always structural divisions.
-    return not _STANDALONE_STRUCTURAL_RE.search(heading_text)
+    if _STANDALONE_STRUCTURAL_RE.search(heading_text):
+        return False
+    # Headings starting with "NOTE" / "A NOTE" / "NOTES" are editorial
+    # apparatus, not chapter subtitles.
+    return not _NOTE_APPARATUS_HEADING_RE.match(heading_text)
 
 
 def _normalize_heading_subtitle(heading_text: str) -> str:

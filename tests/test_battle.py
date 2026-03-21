@@ -133,6 +133,9 @@ def test_metamorphosis_uses_heading_scan_and_skips_front_matter_attribution():
     assert not any(text.startswith("by ") for text in lowered)
     assert not any("translated by" in text for text in lowered)
 
+    # Sections must be div1 — the title is a peer, not a wrapper.
+    assert all(h.div2 == "" for h in headings)
+
 
 def test_odyssey_endnotes_do_not_leak_into_book_twenty_four():
     book_xxiv_paragraphs = [
@@ -982,11 +985,12 @@ def test_war_of_the_worlds_nests_chapters_under_two_books():
     assert len(book2_chapters) == 10
 
 
-def test_heart_of_darkness_keeps_title_and_three_parts():
+def test_heart_of_darkness_keeps_three_parts():
     headings = _headings(219)
     heading_texts = [h.content for h in headings]
 
-    assert heading_texts == ["Heart of Darkness", "I", "II", "III"]
+    assert heading_texts == ["I", "II", "III"]
+    assert all(h.div2 == "" for h in headings)
 
 
 def test_jekyll_and_hyde_keeps_ten_named_chapters():
@@ -1007,10 +1011,15 @@ def test_great_gatsby_keeps_title_and_nine_chapters():
     assert heading_texts[0] == "The Great Gatsby by F. Scott Fitzgerald"
     assert heading_texts[1:] == ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"]
 
+    # Chapters must be div1 — the title is a peer, not a wrapper.
+    assert all(h.div2 == "" for h in headings)
 
-def test_the_prince_nests_chapters_under_the_prince_heading():
+
+def test_the_prince_nests_chapters_under_collection_works():
     headings = _headings(1232)
 
+    # PG 1232 is a collection of three works — chapters nest under each
+    # work title as div2, which is correct anthology behaviour.
     the_prince = next(h for h in headings if h.content == "THE PRINCE")
     assert the_prince.div1 == "THE PRINCE"
     assert the_prince.div2 == ""
@@ -1051,16 +1060,27 @@ def test_beyond_good_and_evil_keeps_preface_and_nine_chapters():
     assert heading_texts[-1] == "FROM THE HEIGHTS"
 
 
-def test_grimms_fairy_tales_nests_stories_under_title():
+def test_grimms_fairy_tales_flattens_stories_to_div1():
     headings = _headings(2591)
 
     assert headings[0].content == "THE BROTHERS GRIMM FAIRY TALES"
-    assert headings[0].div2 == ""
 
-    stories = [h for h in headings if h.div2]
+    stories = [h for h in headings if h.content != "THE BROTHERS GRIMM FAIRY TALES"]
     assert len(stories) == 62
     assert stories[0].content == "THE GOLDEN BIRD"
     assert stories[-1].content == "SNOW-WHITE AND ROSE-RED"
+    assert all(h.div2 == "" for h in stories)
+
+
+def test_johnsons_journey_flattens_place_name_chapters_to_div1():
+    headings = _headings(2064)
+
+    assert headings[0].content == "A JOURNEY TO THE WESTERN ISLANDS OF SCOTLAND"
+    places = [h for h in headings if h.content != headings[0].content]
+    assert len(places) == 30
+    assert places[0].content == "INCH KEITH"
+    assert places[-1].content == "INCH KENNETH"
+    assert all(h.div2 == "" for h in places)
 
 
 def test_confessions_of_augustine_keeps_thirteen_books():

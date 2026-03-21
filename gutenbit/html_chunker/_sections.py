@@ -56,6 +56,7 @@ from gutenbit.html_chunker._headings import (
     _rank_relative_level,
     _same_heading_text,
     _split_play_heading_paragraph,
+    _starts_with_enumerated_heading_prefix,
     _toc_link_refines_body_heading,
     _update_dramatic_context_state,
 )
@@ -82,6 +83,12 @@ _MAX_DESCRIPTION_PARAGRAPH_LEN = 300
 # Minimum fraction of alpha chars that must be uppercase for the paragraph
 # to be considered an ALL-CAPS description (allows minor OCR artifacts).
 _MIN_UPPERCASE_RATIO = 0.9
+# Maximum number of sections at min_level before _equalize_orphan_level_gap
+# treats them as the primary structure rather than orphan outliers.
+_MAX_ORPHAN_LEVEL_COUNT = 2
+# Minimum ratio of next-level sections to min-level sections required before
+# _equalize_orphan_level_gap will demote the min-level outliers.
+_MIN_MAJORITY_RATIO = 3
 
 # ---------------------------------------------------------------------------
 # Compiled regex patterns (used only within this module)
@@ -137,12 +144,12 @@ def _parse_toc_sections(
         link_text = raw_link_text
         if not _is_structural_toc_link(link, raw_link_text, doc_index=doc_index):
             context_text = _toc_context_text(link)
-            if not (
-                _NUMERIC_LINK_TEXT_RE.fullmatch(raw_link_text)
-                and _looks_enumerated_toc_entry(context_text)
+            if _NUMERIC_LINK_TEXT_RE.fullmatch(raw_link_text) and _looks_enumerated_toc_entry(
+                context_text
             ):
+                link_text = context_text
+            else:
                 continue
-            link_text = context_text
         href = str(link.get("href", ""))
         if not href.startswith("#"):
             continue
@@ -1185,6 +1192,103 @@ def _promote_more_prominent_heading_runs(sections: list[_Section]) -> list[_Sect
         return sections
 
     return [section._with_level(new_levels[idx]) for idx, section in enumerate(sections)]
+
+
+# ---------------------------------------------------------------------------
+# Single-work title wrapper flattening
+# ---------------------------------------------------------------------------
+
+def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Section]:
+    """Flatten title-like headings that wrap structural children.
+
+    When a non-keyword heading (e.g. "Metamorphosis", "THE PRINCE") sits one
+    level above enumerated chapters, it is a work title — not a structural
+    container.  Promote its children so chapters become peers at min_level.
+
+    Guard: ≥ 2 title-like wrappers at *min_level* → anthology (Shakespeare) → skip.
+    """
+    if len(sections) < 2:
+        return sections
+
+    min_level = min(s.level for s in sections)
+
+    # Identify title-like sections at min_level that have children one level deeper.
+    wrapper_indices: list[int] = []
+    for idx, section in enumerate(sections):
+        if section.level != min_level:
+            continue
+        if not _is_title_like_heading(section.heading_text):
+            continue
+        # Indexed headings (e.g. "I. A SCANDAL IN BOHEMIA") are sections
+        # within a larger work, not work titles — don't flatten them.
+        if _starts_with_enumerated_heading_prefix(section.heading_text.strip()):
+            continue
+        # Check for at least one direct child at min_level + 1.
+        for next_idx in range(idx + 1, len(sections)):
+            if sections[next_idx].level <= min_level:
+                break
+            if sections[next_idx].level == min_level + 1:
+                wrapper_indices.append(idx)
+                break
+        if len(wrapper_indices) >= 2:
+            return sections
+
+    if not wrapper_indices:
+        return sections
+
+    # Flatten: shift every descendant of the single wrapper up by 1.
+    new_levels = [s.level for s in sections]
+
+    for wrapper_idx in wrapper_indices:
+        # Find the span of children (up to the next min_level section).
+        span_end = len(sections)
+        for next_idx in range(wrapper_idx + 1, len(sections)):
+            if sections[next_idx].level <= min_level:
+                span_end = next_idx
+                break
+
+        for i in range(wrapper_idx + 1, span_end):
+            new_levels[i] = max(1, new_levels[i] - 1)
+
+    return [s._with_level(new_levels[i]) for i, s in enumerate(sections)]
+
+
+def _equalize_orphan_level_gap(sections: list[_Section]) -> list[_Section]:
+    """Demote orphan min-level sections when the vast majority sit one level deeper.
+
+    In PG 946 (Lady Susan) the TOC puts CONCLUSION at level 1 while the 41
+    Roman-numeral letters land at level 2, producing empty div1 slots.  When
+    only a tiny minority (≤ 2) of non-keyword sections occupy min_level and the
+    next level has ≥ 3× as many sections, flatten the outliers down.
+    """
+    if len(sections) < 3:
+        return sections
+
+    min_level = min(s.level for s in sections)
+    at_min = [i for i, s in enumerate(sections) if s.level == min_level]
+    at_next = [i for i, s in enumerate(sections) if s.level == min_level + 1]
+
+    if len(at_min) > _MAX_ORPHAN_LEVEL_COUNT or len(at_next) < len(at_min) * _MIN_MAJORITY_RATIO:
+        return sections
+
+    # Don't demote structural containers (BOOK, PART, etc.).
+    if any(_heading_keyword(sections[i].heading_text) in _BROAD_KEYWORDS for i in at_min):
+        return sections
+
+    # Don't demote sections that have children at the next level — they are
+    # legitimate wrappers (e.g. a collection title), not orphans.
+    for i in at_min:
+        for j in range(i + 1, len(sections)):
+            if sections[j].level <= min_level:
+                break
+            if sections[j].level == min_level + 1:
+                return sections
+
+    new_levels = [s.level for s in sections]
+    for i in at_min:
+        new_levels[i] = min_level + 1
+
+    return [s._with_level(new_levels[i]) for i, s in enumerate(sections)]
 
 
 # ---------------------------------------------------------------------------
