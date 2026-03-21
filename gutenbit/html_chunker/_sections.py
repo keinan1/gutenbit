@@ -1198,6 +1198,7 @@ def _promote_more_prominent_heading_runs(sections: list[_Section]) -> list[_Sect
 # Single-work title wrapper flattening
 # ---------------------------------------------------------------------------
 
+
 def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Section]:
     """Flatten title-like headings that wrap structural children.
 

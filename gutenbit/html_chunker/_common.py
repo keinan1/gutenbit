@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from bs4 import NavigableString, Tag
+from bs4 import Comment, NavigableString, Tag
 
 # ---------------------------------------------------------------------------
 # Constants and frozen sets
@@ -152,9 +152,10 @@ def _extract_heading_text(heading_el: Tag) -> str:
     """
     has_pagenum = heading_el.find("span", class_="pagenum") is not None
     has_br = heading_el.find("br") is not None
+    has_comment = heading_el.find(string=lambda s: isinstance(s, Comment)) is not None
 
     # Fast path: no special elements to strip or replace.
-    if not has_pagenum and not has_br:
+    if not has_pagenum and not has_br and not has_comment:
         text = " ".join(heading_el.get_text().split()).strip()
         if text:
             return text
@@ -184,7 +185,9 @@ def _collect_text_parts(node: Tag, parts: list[str], *, replace_br: bool = True)
     ignored — whitespace collapsing handles it.
     """
     for child in node.children:
-        if isinstance(child, NavigableString):
+        if isinstance(child, Comment):
+            continue
+        elif isinstance(child, NavigableString):
             parts.append(str(child))
         elif isinstance(child, Tag):
             if child.name == "br":
