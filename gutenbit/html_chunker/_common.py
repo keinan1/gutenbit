@@ -148,11 +148,12 @@ def _extract_heading_text(heading_el: Tag) -> str:
     """Get clean heading text from a heading tag.
 
     Handles: ``<br>`` line breaks, inline formatting (``<i>``, ``<b>``, etc.),
-    ``<img alt="...">`` fallback, and strips ``<span class="pagenum">`` elements.
+    ``<img alt="...">`` fallback, strips ``<span class="pagenum">`` elements,
+    and strips HTML comments (``<!-- ... -->``).
     """
     has_pagenum = heading_el.find("span", class_="pagenum") is not None
     has_br = heading_el.find("br") is not None
-    has_comment = heading_el.find(string=lambda s: isinstance(s, Comment)) is not None
+    has_comment = any(isinstance(c, Comment) for c in heading_el.children)
 
     # Fast path: no special elements to strip or replace.
     if not has_pagenum and not has_br and not has_comment:
