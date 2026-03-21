@@ -56,6 +56,7 @@ from gutenbit.html_chunker._headings import (
     _rank_relative_level,
     _same_heading_text,
     _split_play_heading_paragraph,
+    _starts_with_enumerated_heading_prefix,
     _toc_link_refines_body_heading,
     _update_dramatic_context_state,
 )
@@ -82,6 +83,13 @@ _MAX_DESCRIPTION_PARAGRAPH_LEN = 300
 # Minimum fraction of alpha chars that must be uppercase for the paragraph
 # to be considered an ALL-CAPS description (allows minor OCR artifacts).
 _MIN_UPPERCASE_RATIO = 0.9
+# Maximum number of sections at min_level before _equalize_orphan_level_gap
+# treats them as the primary structure rather than orphan outliers.
+_MAX_ORPHAN_LEVEL_COUNT = 2
+# Minimum ratio of next-level sections to min-level sections required before
+# _equalize_orphan_level_gap will demote the min-level outliers.
+_MIN_MAJORITY_RATIO = 3
+
 # ---------------------------------------------------------------------------
 # Compiled regex patterns (used only within this module)
 # ---------------------------------------------------------------------------
@@ -1190,13 +1198,6 @@ def _promote_more_prominent_heading_runs(sections: list[_Section]) -> list[_Sect
 # Single-work title wrapper flattening
 # ---------------------------------------------------------------------------
 
-_LEADING_INDEX_RE = re.compile(
-    r"^(?:[IVXLCDM]+|[0-9]+)(?:\.|—|\s|$)",
-    re.IGNORECASE,
-)
-
-
-
 def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Section]:
     """Flatten title-like headings that wrap structural children.
 
@@ -1220,7 +1221,7 @@ def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Sectio
             continue
         # Indexed headings (e.g. "I. A SCANDAL IN BOHEMIA") are sections
         # within a larger work, not work titles — don't flatten them.
-        if _LEADING_INDEX_RE.match(section.heading_text.strip()):
+        if _starts_with_enumerated_heading_prefix(section.heading_text.strip()):
             continue
         # Check for at least one direct child at min_level + 1.
         for next_idx in range(idx + 1, len(sections)):
@@ -1244,14 +1245,6 @@ def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Sectio
             if sections[next_idx].level <= min_level:
                 span_end = next_idx
                 break
-
-        # Require at least one direct child.
-        has_child = any(
-            sections[i].level == min_level + 1
-            for i in range(wrapper_idx + 1, span_end)
-        )
-        if not has_child:
-            continue
 
         for i in range(wrapper_idx + 1, span_end):
             new_levels[i] = max(1, new_levels[i] - 1)
@@ -1278,7 +1271,7 @@ def _equalize_orphan_level_gap(sections: list[_Section]) -> list[_Section]:
     at_min = [i for i, s in enumerate(sections) if s.level == min_level]
     at_next = [i for i, s in enumerate(sections) if s.level == min_level + 1]
 
-    if len(at_min) > 2 or len(at_next) < len(at_min) * 3:
+    if len(at_min) > _MAX_ORPHAN_LEVEL_COUNT or len(at_next) < len(at_min) * _MIN_MAJORITY_RATIO:
         return sections
 
     # Don't demote structural containers (BOOK, PART, etc.).

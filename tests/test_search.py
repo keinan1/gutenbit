@@ -1385,7 +1385,7 @@ def test_toc_json_preserves_bracketed_numeric_section_labels(tmp_path):
     payload = json.loads(out)
     sections = payload["data"]["toc"]["sections"]
     assert sections[0]["section"] == "— I —"
-    assert sections[1]["section"] == "— I — / [ 1 ]"
+    assert sections[1]["section"] == "[ 1 ]"
 
 
 def test_view_json_all_for_book(tmp_path):

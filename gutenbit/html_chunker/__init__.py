@@ -25,7 +25,9 @@ from gutenbit.html_chunker._scanning import (
     _scan_document,
 )
 from gutenbit.html_chunker._sections import (
+    _equalize_orphan_level_gap,
     _find_non_structural_boundary_after,
+    _flatten_single_work_title_wrapper,
     _merge_adjacent_duplicate_sections,
     _merge_chapter_description_paragraphs,
     _merge_chapter_subtitle_sections,
@@ -37,8 +39,6 @@ from gutenbit.html_chunker._sections import (
     _parse_paragraph_sections,
     _parse_toc_sections,
     _promote_more_prominent_heading_runs,
-    _equalize_orphan_level_gap,
-    _flatten_single_work_title_wrapper,
     _refine_toc_sections,
 )
 
@@ -133,6 +133,9 @@ def chunk_html(html: str) -> list[Chunk]:
     sections = _nest_broad_subdivisions(sections)
     sections = _nest_chapters_under_broad_containers(sections)
     sections = _promote_more_prominent_heading_runs(sections)
+    # Flatten title wrappers and equalise orphan gaps *before* subtitle
+    # merging so that level changes from flattening are visible to the
+    # subtitle pass (e.g. note-apparatus headings at the correct level).
     sections = _flatten_single_work_title_wrapper(sections)
     sections = _equalize_orphan_level_gap(sections)
     sections = _merge_chapter_subtitle_sections(sections, toc_anchor_ids=toc_anchor_ids)
