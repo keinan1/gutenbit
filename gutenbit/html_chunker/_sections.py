@@ -1230,13 +1230,14 @@ def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Sectio
             if sections[next_idx].level == min_level + 1:
                 wrapper_indices.append(idx)
                 break
+        if len(wrapper_indices) >= 2:
+            return sections
 
-    if not wrapper_indices or len(wrapper_indices) >= 2:
+    if not wrapper_indices:
         return sections
 
-    # Flatten: shift every descendant of each wrapper up by 1.
+    # Flatten: shift every descendant of the single wrapper up by 1.
     new_levels = [s.level for s in sections]
-    changed = False
 
     for wrapper_idx in wrapper_indices:
         # Find the span of children (up to the next min_level section).
@@ -1248,10 +1249,6 @@ def _flatten_single_work_title_wrapper(sections: list[_Section]) -> list[_Sectio
 
         for i in range(wrapper_idx + 1, span_end):
             new_levels[i] = max(1, new_levels[i] - 1)
-            changed = True
-
-    if not changed:
-        return sections
 
     return [s._with_level(new_levels[i]) for i, s in enumerate(sections)]
 
@@ -1285,7 +1282,7 @@ def _equalize_orphan_level_gap(sections: list[_Section]) -> list[_Section]:
             if sections[j].level <= min_level:
                 break
             if sections[j].level == min_level + 1:
-                return sections  # This min-level section wraps children.
+                return sections
 
     new_levels = [s.level for s in sections]
     for i in at_min:
