@@ -7,10 +7,14 @@ repo_url: https://github.com/textualist/gutenbit
 
 theme:
   name: material
-  logo: assets/brand/gb-star-logo.png
   language: en
   palette:
-    - scheme: default
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
       primary: custom
       accent: custom
   features:
