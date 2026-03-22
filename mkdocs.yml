@@ -18,6 +18,7 @@ theme:
       scheme: slate
       primary: custom
       accent: custom
+  favicon: assets/brand/favicon.svg
   features:
     - navigation.sections
     - content.code.copy
