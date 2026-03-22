@@ -35,27 +35,41 @@ _multi_link_toc_paragraphs: WeakSet[Tag] = WeakSet()
 _multi_link_toc_non_paragraphs: WeakSet[Tag] = WeakSet()
 
 
+_toc_context_cache: dict[int, bool] = {}
+
+
 def _is_toc_context_link(link: Tag) -> bool:
     """Return True when *link* sits in a TOC-like container."""
+    # Fast path: check if the parent paragraph's TOC status is already cached.
+    paragraph = link.find_parent("p")
+    if paragraph is not None:
+        key = id(paragraph)
+        cached = _toc_context_cache.get(key)
+        if cached is not None:
+            return cached
+
     if link.find_parent("tr") is not None:
         return True
-
-    # Cache the paragraph lookup — reused by the multi-link heuristic below.
-    paragraph = link.find_parent("p")
 
     for name in ("p", "li", "div"):
         container = paragraph if name == "p" else link.find_parent(name)
         if container is None:
             continue
         if container.name == "p" and _is_toc_paragraph(container):
+            if paragraph is not None:
+                _toc_context_cache[id(paragraph)] = True
             return True
 
         classes = {str(c).lower() for c in (container.get("class") or [])}
         if "toc" in classes or "contents" in classes:
+            if paragraph is not None:
+                _toc_context_cache[id(paragraph)] = True
             return True
 
         residue = _container_residue_without_link_text(container)
         if _NON_ALNUM_RE.sub("", residue) == "":
+            if paragraph is not None:
+                _toc_context_cache[id(paragraph)] = True
             return True
 
     # Multi-link paragraphs immediately following a "CONTENTS" heading
@@ -65,6 +79,7 @@ def _is_toc_context_link(link: Tag) -> bool:
     # link in the same paragraph hits this path.
     if paragraph is not None:
         if paragraph in _multi_link_toc_paragraphs:
+            _toc_context_cache[id(paragraph)] = True
             return True
         if paragraph not in _multi_link_toc_non_paragraphs:
             is_toc = False
@@ -85,8 +100,10 @@ def _is_toc_context_link(link: Tag) -> bool:
                             is_toc = True
             if is_toc:
                 _multi_link_toc_paragraphs.add(paragraph)
+                _toc_context_cache[id(paragraph)] = True
                 return True
             _multi_link_toc_non_paragraphs.add(paragraph)
+        _toc_context_cache[id(paragraph)] = False
     return False
 
 

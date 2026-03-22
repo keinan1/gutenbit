@@ -374,34 +374,56 @@ def _extract_preformatted_text(pre: Tag) -> str:
 # ---------------------------------------------------------------------------
 
 
+_container_residue_cache: dict[int, str] = {}
+
+
 def _container_residue_without_link_text(container: Tag) -> str:
     """Return container text after removing each internal-link label once."""
+    key = id(container)
+    cached = _container_residue_cache.get(key)
+    if cached is not None:
+        return cached
     residue = container.get_text()
     for link in container.find_all("a", class_="pginternal"):
         link_text = link.get_text()
         if link_text:
             residue = residue.replace(link_text, "", 1)
-    return " ".join(residue.split()).strip()
+    result = " ".join(residue.split()).strip()
+    _container_residue_cache[key] = result
+    return result
+
+
+_is_toc_paragraph_cache: dict[int, bool] = {}
 
 
 def _is_toc_paragraph(paragraph: Tag, *, has_pginternal: bool | None = None) -> bool:
     """Return True for TOC/navigation paragraphs."""
     if has_pginternal is not None and not has_pginternal:
         return False
+
+    key = id(paragraph)
+    cached = _is_toc_paragraph_cache.get(key)
+    if cached is not None:
+        return cached
+
     links = paragraph.find_all("a", class_="pginternal")
     if not links:
+        _is_toc_paragraph_cache[key] = False
         return False
 
     classes = {str(c).lower() for c in (paragraph.get("class") or [])}
     if "toc" in classes:
+        _is_toc_paragraph_cache[key] = True
         return True
 
     # Check if removing pginternal link text leaves only punctuation/whitespace,
     # without re-parsing the paragraph.
     residue = _container_residue_without_link_text(paragraph)
-    return _NON_ALNUM_RE.sub("", residue) == "" or _is_single_link_structural_toc_paragraph(
+    result = _NON_ALNUM_RE.sub("", residue) == "" or _is_single_link_structural_toc_paragraph(
         paragraph, links=links, residue=residue
     )
+    _is_toc_paragraph_cache[key] = result
+    return result
 
 
 def _is_single_link_structural_toc_paragraph(

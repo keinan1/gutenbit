@@ -3113,6 +3113,49 @@ def test_many_flat_chapters_preserve_prefatory_heading():
     assert all(h.div2 == "" for h in headings)
 
 
+def test_heading_rank_nesting_in_multi_work_collection():
+    """Regression (PG 29363): in a multi-work collection, non-keyword
+    headings at h1 should nest h2 children based on heading rank.
+
+    The HTML heading tag hierarchy (h1→h2→h3) is the authoritative
+    structural signal.  When 2+ title-like works exist at the top level,
+    the flatten-single-work guard skips flattening, and rank nesting
+    preserves the correct hierarchy.
+    """
+    html = _make_html("""
+    <p class="toc"><a href="#work1" class="pginternal">WORK ONE TITLE</a></p>
+    <p class="toc"><a href="#w1s1" class="pginternal">Section Alpha</a></p>
+    <p class="toc"><a href="#w1s2" class="pginternal">Section Beta</a></p>
+    <p class="toc"><a href="#work2" class="pginternal">WORK TWO TITLE</a></p>
+    <p class="toc"><a href="#w2s1" class="pginternal">Section Gamma</a></p>
+
+    <h1><a id="work1"></a>WORK ONE TITLE</h1>
+    <h2><a id="w1s1"></a>Section Alpha</h2>
+    <p>Content of section alpha.</p>
+    <h2><a id="w1s2"></a>Section Beta</h2>
+    <p>Content of section beta.</p>
+
+    <h1><a id="work2"></a>WORK TWO TITLE</h1>
+    <h2><a id="w2s1"></a>Section Gamma</h2>
+    <p>Content of section gamma.</p>
+    """)
+    chunks = chunk_html(html)
+    headings = [c for c in chunks if c.kind == "heading"]
+
+    # Two works at div1.
+    assert headings[0].div1 == "WORK ONE TITLE"
+    assert headings[3].div1 == "WORK TWO TITLE"
+
+    # Sections nest under their work as div2 (h1→h2 rank nesting).
+    alpha = [h for h in headings if h.content == "Section Alpha"][0]
+    assert alpha.div1 == "WORK ONE TITLE"
+    assert alpha.div2 == "Section Alpha"
+
+    gamma = [h for h in headings if h.content == "Section Gamma"][0]
+    assert gamma.div1 == "WORK TWO TITLE"
+    assert gamma.div2 == "Section Gamma"
+
+
 def test_descriptive_book_names_with_chapter_nesting():
     """Regression (PG 6688): books with descriptive names (not just
     'BOOK I') should still serve as containers for chapters."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 from bs4 import Comment, NavigableString, Tag
 
@@ -207,6 +208,7 @@ def _collect_text_parts(node: Tag, parts: list[str], *, replace_br: bool = True)
                 _collect_text_parts(child, parts, replace_br=replace_br)
 
 
+@lru_cache(maxsize=4096)
 def _clean_heading_text(heading_text: str) -> str:
     """Normalize heading text while preserving source terminal punctuation."""
     text = " ".join(heading_text.split()).strip()
