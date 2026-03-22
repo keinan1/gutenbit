@@ -103,7 +103,7 @@ body::before {
 }
 
 @media screen and (min-width: 76.25em) {
-  .md-header__title { display: none; }
+  .md-header__title { visibility: hidden; flex: 1; }
 }
 
 /* ─── Mobile drawer logo ─── */
