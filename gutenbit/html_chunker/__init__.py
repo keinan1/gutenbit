@@ -21,9 +21,12 @@ from gutenbit.html_chunker._common import (
     _HEADING_TAGS,
 )
 from gutenbit.html_chunker._scanning import (
+    _container_residue_cache,  # cleared per-parse (keyed by id())
+    _is_toc_paragraph_cache,  # cleared per-parse (keyed by id())
     _paragraphs_in_range,
     _scan_document,
 )
+from gutenbit.html_chunker._toc import _toc_context_cache  # cleared per-parse (keyed by id())
 from gutenbit.html_chunker._sections import (
     _equalize_orphan_level_gap,
     _find_non_structural_boundary_after,
@@ -40,6 +43,7 @@ from gutenbit.html_chunker._sections import (
     _parse_toc_sections,
     _promote_more_prominent_heading_runs,
     _refine_toc_sections,
+    _respect_heading_rank_nesting,
 )
 
 # ---------------------------------------------------------------------------
@@ -47,7 +51,7 @@ from gutenbit.html_chunker._sections import (
 # ---------------------------------------------------------------------------
 
 HTML_PARSER_BACKEND = "lxml"
-CHUNKER_VERSION = 33
+CHUNKER_VERSION = 34
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +88,11 @@ def chunk_html(html: str) -> list[Chunk]:
 
     Each ``<p>`` element becomes its own chunk. Returns chunks in document order.
     """
+    # Clear per-parse caches keyed by id() (not valid across soup instances).
+    _container_residue_cache.clear()
+    _is_toc_paragraph_cache.clear()
+    _toc_context_cache.clear()
+
     soup = BeautifulSoup(html, HTML_PARSER_BACKEND)
     doc_index = _scan_document(soup)
     tag_positions = doc_index.tag_positions
@@ -133,6 +142,10 @@ def chunk_html(html: str) -> list[Chunk]:
     sections = _nest_broad_subdivisions(sections)
     sections = _nest_chapters_under_broad_containers(sections)
     sections = _promote_more_prominent_heading_runs(sections)
+    # Use heading rank (h1→h2→h3) to nest sections under non-keyword
+    # parents when the rank gap is exactly 1.  Runs before flatten/orphan
+    # passes so that those passes see the rank-informed hierarchy.
+    sections = _respect_heading_rank_nesting(sections, infer_from_rank=True)
     # Flatten title wrappers and equalise orphan gaps *before* subtitle
     # merging so that level changes from flattening are visible to the
     # subtitle pass (e.g. note-apparatus headings at the correct level).

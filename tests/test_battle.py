@@ -1243,3 +1243,55 @@ def test_peter_rabbit_collapses_title_block_into_single_section():
     # All content captured under the single section.
     assert len(paragraphs) > 40
     assert any("four little rabbits" in p.content for p in paragraphs)
+
+
+# ---------------------------------------------------------------------------
+# Thackeray & George Eliot corpus
+# ---------------------------------------------------------------------------
+
+
+def test_henry_esmond_collected_preserves_all_three_works():
+    """PG 29363 — Collected edition must not truncate after Appendix.
+
+    The Appendix belongs to Henry Esmond, but two more works follow:
+    The English Humourists and The Four Georges.  The apparatus-heading
+    truncation must skip when more prominent headings come after it.
+    Heading rank nesting (h1→h2→h3) must be respected so that lectures
+    nest under The English Humourists, and Georges nest under The Georges.
+    """
+    headings = _headings(29363)
+    div1_values = sorted({h.div1 for h in headings if h.div1})
+
+    # Henry Esmond: Books I-III with chapters, plus Appendix.
+    # Books nest under "The History Of Henry Esmond" as div2.
+    henry_books = [h for h in headings if "Book I" in h.div2 or "Book II" in h.div2 or "Book III" in h.div2]
+    assert len({h.div2 for h in henry_books}) == 3
+
+    # Chapters nest as div3 under their Books.
+    book1_chapters = [h for h in headings if "Book I." in h.div2 and "Chapter" in h.div3]
+    assert len(book1_chapters) >= 14
+
+    # Appendix is kept (under Henry Esmond).
+    assert any("Appendix" in h.content for h in headings)
+
+    # The English Humourists — a separate div1 work.
+    assert "The English Humourists Of The Eighteenth Century" in div1_values
+    # Lectures nest under Humourists as div2.
+    humourist_lectures = [
+        h for h in headings
+        if "Lecture The" in h.content
+        and "Humourists" in h.div1
+    ]
+    assert len(humourist_lectures) == 6
+
+    # The Four Georges — a separate div1 work.
+    assert "The Georges" in div1_values
+    # George sections nest under The Georges.
+    george_sections = [
+        h for h in headings
+        if "George The" in h.content
+        and "Georges" in h.div1
+    ]
+    assert len(george_sections) >= 4
+
+
