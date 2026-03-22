@@ -40,7 +40,10 @@ _toc_context_cache: dict[int, bool] = {}
 
 def _is_toc_context_link(link: Tag) -> bool:
     """Return True when *link* sits in a TOC-like container."""
-    # Fast path: check if the parent paragraph's TOC status is already cached.
+    # Table-based TOC — always True, no paragraph caching needed.
+    if link.find_parent("tr") is not None:
+        return True
+
     paragraph = link.find_parent("p")
     if paragraph is not None:
         key = id(paragraph)
@@ -48,31 +51,25 @@ def _is_toc_context_link(link: Tag) -> bool:
         if cached is not None:
             return cached
 
-    if link.find_parent("tr") is not None:
-        # Table-based TOC — always True.  We don't cache this on the
-        # paragraph because table rows are a separate structural signal.
-        return True
+    def _cache_result(value: bool) -> bool:
+        if paragraph is not None:
+            _toc_context_cache[id(paragraph)] = value
+        return value
 
     for name in ("p", "li", "div"):
         container = paragraph if name == "p" else link.find_parent(name)
         if container is None:
             continue
         if container.name == "p" and _is_toc_paragraph(container):
-            if paragraph is not None:
-                _toc_context_cache[id(paragraph)] = True
-            return True
+            return _cache_result(True)
 
         classes = {str(c).lower() for c in (container.get("class") or [])}
         if "toc" in classes or "contents" in classes:
-            if paragraph is not None:
-                _toc_context_cache[id(paragraph)] = True
-            return True
+            return _cache_result(True)
 
         residue = _container_residue_without_link_text(container)
         if _NON_ALNUM_RE.sub("", residue) == "":
-            if paragraph is not None:
-                _toc_context_cache[id(paragraph)] = True
-            return True
+            return _cache_result(True)
 
     # Multi-link paragraphs immediately following a "CONTENTS" heading
     # are TOC blocks even when the residue is non-empty (e.g., discourse
@@ -81,8 +78,7 @@ def _is_toc_context_link(link: Tag) -> bool:
     # link in the same paragraph hits this path.
     if paragraph is not None:
         if paragraph in _multi_link_toc_paragraphs:
-            _toc_context_cache[id(paragraph)] = True
-            return True
+            return _cache_result(True)
         if paragraph not in _multi_link_toc_non_paragraphs:
             is_toc = False
             # limit=20: we only care whether there are at least 20 links,
@@ -102,11 +98,9 @@ def _is_toc_context_link(link: Tag) -> bool:
                             is_toc = True
             if is_toc:
                 _multi_link_toc_paragraphs.add(paragraph)
-                _toc_context_cache[id(paragraph)] = True
-                return True
+                return _cache_result(True)
             _multi_link_toc_non_paragraphs.add(paragraph)
-        _toc_context_cache[id(paragraph)] = False
-    return False
+    return _cache_result(False)
 
 
 def _toc_context_text(link: Tag) -> str:
