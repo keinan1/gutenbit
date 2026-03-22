@@ -241,10 +241,22 @@ def _parse_toc_sections(
 
     # Truncate after an apparatus heading (APPENDIX, NOTES ON...): keep the
     # apparatus heading itself but drop everything after it so commentary
-    # text stays flat under that one section.
+    # text stays flat under that one section.  Skip the truncation when a
+    # more prominent heading follows the apparatus heading — this indicates
+    # additional top-level works in a collected edition rather than trailing
+    # commentary (e.g. Henry Esmond's Appendix followed by The English
+    # Humourists in PG 29363).
     for trim_idx, section in enumerate(sections):
         if _REFINEMENT_STOP_HEADING_RE.match(section.heading_text):
-            sections = sections[: trim_idx + 1]
+            apparatus_rank = section.heading_rank
+            has_higher_rank_after = any(
+                s.heading_rank is not None
+                and apparatus_rank is not None
+                and s.heading_rank < apparatus_rank
+                for s in sections[trim_idx + 1 :]
+            )
+            if not has_higher_rank_after:
+                sections = sections[: trim_idx + 1]
             break
 
     # Remove a leading title section whose heading is a prefix of the next section's

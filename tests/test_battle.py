@@ -1243,3 +1243,144 @@ def test_peter_rabbit_collapses_title_block_into_single_section():
     # All content captured under the single section.
     assert len(paragraphs) > 40
     assert any("four little rabbits" in p.content for p in paragraphs)
+
+
+# ---------------------------------------------------------------------------
+# Thackeray & George Eliot corpus
+# ---------------------------------------------------------------------------
+
+
+def test_henry_esmond_collected_preserves_all_three_works():
+    """PG 29363 — Collected edition must not truncate after Appendix.
+
+    The Appendix belongs to Henry Esmond, but two more works follow:
+    The English Humourists and The Four Georges.  The apparatus-heading
+    truncation must skip when more prominent headings come after it.
+    """
+    headings = _headings(29363)
+    div1_values = sorted({h.div1 for h in headings if h.div1})
+
+    # Henry Esmond's three books
+    assert any("Book I" in v for v in div1_values)
+    assert any("Book II" in v for v in div1_values)
+    assert any("Book III" in v for v in div1_values)
+
+    # Appendix is kept
+    assert "Appendix" in div1_values
+
+    # The English Humourists — must not be absorbed into Appendix
+    assert "The English Humourists Of The Eighteenth Century" in div1_values
+    humourist_lectures = [
+        h for h in headings if "Lecture The" in h.content
+    ]
+    assert len(humourist_lectures) == 6
+
+    # The Four Georges — must not be lost
+    assert "The Georges" in div1_values
+    george_sections = [h for h in headings if "George The" in h.content]
+    assert len(george_sections) >= 4
+
+
+def test_henry_esmond_keeps_book_structure():
+    """PG 2511 — Henry Esmond standalone has Books I-III with chapters."""
+    headings = _headings(2511)
+    div1_values = sorted({h.div1 for h in headings if h.div1})
+
+    assert len(div1_values) == 3
+    assert all("BOOK" in v for v in div1_values)
+
+    # Chapters are nested under books
+    book1_chapters = [h for h in headings if h.div1 == "BOOK I." and h.div2.startswith("CHAPTER")]
+    assert len(book1_chapters) >= 14
+
+
+def test_pendennis_preserves_preface():
+    """PG 7265 — Pendennis must keep its PREFACE before the chapters."""
+    headings = _headings(7265)
+    assert headings[0].content == "PREFACE"
+    chapters = [h for h in headings if h.content.startswith("CHAPTER")]
+    assert len(chapters) == 76
+
+
+def test_newcomes_preserves_chapter_structure():
+    """PG 7467 — The Newcomes has 80 chapters with some sub-sections."""
+    headings = _headings(7467)
+    div1_values = {h.div1 for h in headings if h.div1}
+    # At least 80 chapter-level div1 values
+    assert len(div1_values) >= 80
+
+
+def test_mill_on_floss_preserves_book_chapter_nesting():
+    """PG 6688 — Mill on the Floss has 7 Books with chapters nested."""
+    headings = _headings(6688)
+    div1_values = sorted({h.div1 for h in headings if h.div1})
+
+    assert len(div1_values) == 7
+    assert any("BOY AND GIRL" in v for v in div1_values)
+    assert any("FINAL RESCUE" in v for v in div1_values)
+
+    # Chapters nested under books
+    book1_chapters = [h for h in headings if "BOY AND GIRL" in h.div1 and h.div2]
+    assert len(book1_chapters) >= 10
+
+
+def test_adam_bede_preserves_epilogue():
+    """PG 507 — Adam Bede has 6 Books plus Epilogue."""
+    headings = _headings(507)
+    div1_values = sorted({h.div1 for h in headings if h.div1})
+
+    assert "Epilogue" in div1_values
+    assert len(div1_values) == 7  # 6 books + epilogue
+
+
+def test_silas_marner_preserves_two_parts():
+    """PG 550 — Silas Marner has two parts with chapters."""
+    headings = _headings(550)
+    div1_values = sorted({h.div1 for h in headings if h.div1})
+
+    assert len(div1_values) == 2
+    assert "PART I." in div1_values
+    assert "PART II." in div1_values
+
+    part1_chapters = [h for h in headings if h.div1 == "PART I." and h.div2.startswith("CHAPTER")]
+    assert len(part1_chapters) >= 15
+
+
+def test_daniel_deronda_preserves_book_structure():
+    """PG 7469 — Daniel Deronda has 8 Books with chapters."""
+    headings = _headings(7469)
+    div1_values = sorted({h.div1 for h in headings if h.div1})
+
+    book_div1s = [v for v in div1_values if v.startswith("BOOK")]
+    assert len(book_div1s) == 8
+
+
+def test_scenes_of_clerical_life_preserves_story_nesting():
+    """PG 17780 — Three stories with chapters nested under each."""
+    headings = _headings(17780)
+    div1_values = sorted({h.div1 for h in headings if h.div1})
+
+    assert "THE SAD FORTUNES OF THE REV. AMOS BARTON" in div1_values
+    assert any("REPENTANCE" in v for v in div1_values)
+    assert len(div1_values) >= 4  # 3 stories + introduction
+
+    # Chapters nested under stories
+    amos_chapters = [h for h in headings if "AMOS BARTON" in h.div1 and h.div2]
+    assert len(amos_chapters) >= 7
+
+
+def test_barry_lyndon_flat_chapter_structure():
+    """PG 4558 — Barry Lyndon has 19 chapters at div1 level."""
+    headings = _headings(4558)
+    chapters = [h for h in headings if h.content.startswith("CHAPTER")]
+    assert len(chapters) == 19
+    assert all(h.div2 == "" for h in chapters)
+
+
+def test_book_of_snobs_preserves_prefatory_remarks():
+    """PG 2686 — Book of Snobs keeps PREFATORY REMARKS and CONCLUDING."""
+    headings = _headings(2686)
+    heading_texts = [h.content for h in headings]
+
+    assert "PREFATORY REMARKS" in heading_texts
+    assert "CONCLUDING OBSERVATIONS ON SNOBS" in heading_texts
