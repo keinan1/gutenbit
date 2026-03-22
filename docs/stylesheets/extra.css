@@ -12,6 +12,11 @@
   --rule-strong: rgba(14,11,9,0.25);
   --card-bg: rgba(var(--paper-rgb),0.5);
   --code-bg: rgba(14,11,9,0.05);
+  --grain-blend: multiply;
+  --grain-opacity: 0.3;
+  --serif: 'Source Serif 4', Georgia, serif;
+  --sans: 'Source Sans 3', system-ui, sans-serif;
+  --mono: 'DM Mono', 'SF Mono', monospace;
 }
 
 [data-md-color-scheme="default"] {
@@ -24,7 +29,7 @@
   --md-primary-bg-color: var(--ink);
   --md-accent-fg-color: var(--red);
   --md-typeset-a-color: var(--red);
-  --md-code-bg-color: var(--code-bg);
+  --md-code-bg-color: #fffdf9;
   --md-code-fg-color: var(--ink);
 }
 
@@ -41,6 +46,8 @@
   --rule-strong: rgba(237,228,212,0.18);
   --card-bg: rgba(34,28,20,0.6);
   --code-bg: rgba(237,228,212,0.06);
+  --grain-blend: soft-light;
+  --grain-opacity: 0.15;
 
   --md-default-bg-color: var(--paper);
   --md-default-fg-color: var(--ink);
@@ -58,6 +65,19 @@
   --md-default-bg-color--light: rgba(var(--paper-rgb),0.7);
 }
 
+/* ─── Paper grain texture ─── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  mix-blend-mode: var(--grain-blend);
+}
+
 /* ─── Header & Tabs ─── */
 .md-header,
 .md-tabs {
@@ -65,8 +85,35 @@
   border-bottom: 1px solid var(--rule);
 }
 
-.md-header__topic:first-child .md-ellipsis {
+/* ─── Header breadcrumb ─── */
+.gb-brand {
+  font-family: var(--mono);
+  font-size: 0.85rem;
   font-weight: 400;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.gb-star {
+  color: var(--red);
+}
+
+.gb-sep {
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  color: var(--muted);
+  opacity: 0.4;
+  margin: 0 0.15rem;
+}
+
+.gb-project {
+  font-family: var(--serif);
+  font-size: 0.85rem;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--red);
+  text-decoration: none;
+  line-height: 1.15;
 }
 
 /* ─── Search ─── */
@@ -103,6 +150,7 @@
 }
 
 .homepage-identity h1 {
+  font-family: var(--serif);
   font-style: italic;
   font-weight: 400;
   color: var(--red);
