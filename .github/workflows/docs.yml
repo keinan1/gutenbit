@@ -32,12 +32,12 @@ jobs:
         run: uv run --extra docs zensical build --clean
 
       - uses: actions/upload-pages-artifact@v4
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push'
         with:
           path: site
 
   deploy:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     permissions:
