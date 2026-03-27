@@ -29,7 +29,7 @@ jobs:
           enable-cache: true
 
       - name: Build documentation
-        run: uv run --extra docs mkdocs build --strict --clean
+        run: uv run --extra docs zensical build --clean
 
   deploy:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -52,10 +52,11 @@ jobs:
           python-version: "3.11"
           enable-cache: true
 
-      - name: Configure Git credentials
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - name: Build documentation
+        run: uv run --extra docs zensical build --clean
 
       - name: Deploy documentation
-        run: uv run --extra docs mkdocs gh-deploy --force
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
