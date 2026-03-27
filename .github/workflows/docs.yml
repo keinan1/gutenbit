@@ -36,11 +36,18 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     concurrency:
       group: github-pages
       cancel-in-progress: true
     steps:
+      - uses: actions/configure-pages@v5
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
@@ -55,8 +62,9 @@ jobs:
       - name: Build documentation
         run: uv run --extra docs zensical build --clean
 
-      - name: Deploy documentation
-        uses: peaceiris/actions-gh-pages@v4
+      - uses: actions/upload-pages-artifact@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
+          path: site
+
+      - uses: actions/deploy-pages@v4
+        id: deployment
