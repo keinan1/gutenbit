@@ -16,6 +16,7 @@ nav = [
 [project.theme]
 variant = "modern"
 language = "en"
+# Image hidden via CSS; keeps the <a class="md-logo"> element for gb* text pseudo-elements.
 logo = "assets/brand/abbr-gb.png"
 favicon = "assets/brand/favicon.svg"
 features = [
