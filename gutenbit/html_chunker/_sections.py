@@ -26,8 +26,6 @@ from gutenbit.html_chunker._common import (
 from gutenbit.html_chunker._headings import (
     _DRAMATIC_CONTEXT_HEADING_RE,
     _PLAIN_NUMBER_HEADING_RE,
-    _STANDALONE_BYLINE_RE,
-    _TERMINAL_MARKER_RE,
     _broad_heading_with_enumerated_child,
     _broad_nesting_depth,
     _classify_level,
@@ -83,6 +81,12 @@ from gutenbit.html_chunker._toc import (
 
 # Longest description paragraph to merge (chars).  Gutenberg chapter
 # descriptions are typically 1–2 lines; anything longer is body prose.
+_STANDALONE_BYLINE_RE = re.compile(r"^by\.?$", re.IGNORECASE)
+_TERMINAL_MARKER_RE = re.compile(
+    r"^(?:the\s+end|finis)\.?$",
+    re.IGNORECASE,
+)
+
 _MAX_DESCRIPTION_PARAGRAPH_LEN = 300
 # Minimum fraction of alpha chars that must be uppercase for the paragraph
 # to be considered an ALL-CAPS description (allows minor OCR artifacts).
@@ -473,19 +477,20 @@ def _merge_chapter_subtitle_sections(
             # same-rank peers — if the next-next section is at the same rank,
             # we have sibling stories, not a title + subtitle.  Bare numbers
             # (Roman numerals, digits) on either side are never title + subtitle.
-            sec_stripped = sec.heading_text.strip()
-            nxt_stripped = nxt.heading_text.strip()
-            nxt_is_lone_subtitle = (
-                not keyword
-                and _is_title_like_heading(sec_stripped)
-                and not _PLAIN_NUMBER_HEADING_RE.fullmatch(sec_stripped)
-                and not _PLAIN_NUMBER_HEADING_RE.fullmatch(nxt_stripped)
-                and _next_heading_is_subtitle(nxt_stripped)
-                and not _DRAMATIC_CONTEXT_HEADING_RE.match(nxt_stripped)
-                and not _TERMINAL_MARKER_RE.fullmatch(nxt_stripped)
-                and i + 2 < len(sections)
-                and sections[i + 2].heading_rank != nxt.heading_rank
-            )
+            nxt_is_lone_subtitle = False
+            if not keyword:
+                sec_stripped = sec.heading_text.strip()
+                nxt_stripped = nxt.heading_text.strip()
+                nxt_is_lone_subtitle = (
+                    _is_title_like_heading(sec_stripped)
+                    and not _PLAIN_NUMBER_HEADING_RE.fullmatch(sec_stripped)
+                    and not _PLAIN_NUMBER_HEADING_RE.fullmatch(nxt_stripped)
+                    and _next_heading_is_subtitle(nxt_stripped)
+                    and not _DRAMATIC_CONTEXT_HEADING_RE.match(nxt_stripped)
+                    and not _TERMINAL_MARKER_RE.fullmatch(nxt_stripped)
+                    and i + 2 < len(sections)
+                    and sections[i + 2].heading_rank != nxt.heading_rank
+                )
             if shared_merge_conditions and (
                 (keyword and keyword not in _BROAD_KEYWORDS and nxt.level > sec.level)
                 or nxt_is_lone_subtitle

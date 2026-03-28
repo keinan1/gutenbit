@@ -85,15 +85,10 @@ _NON_STRUCTURAL_HEADING_RE = re.compile(
     r"editor's note|editors note|finis)\b",
     re.IGNORECASE,
 )
-_TERMINAL_MARKER_RE = re.compile(
-    r"^(?:the\s+end|finis)\.?$",
-    re.IGNORECASE,
-)
 _FRONT_MATTER_ATTRIBUTION_RE = re.compile(
     r"^(?:by|translated\s+by|edited\s+by|illustrated\s+by)\s",
     re.IGNORECASE,
 )
-_STANDALONE_BYLINE_RE = re.compile(r"^by\.?$", re.IGNORECASE)
 _PUBLICATION_METADATA_RE = re.compile(
     r"^(?:printed|published|reprinted|first\s+published|originally\s+published)\b",
     re.IGNORECASE,
