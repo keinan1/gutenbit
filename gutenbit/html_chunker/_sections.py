@@ -76,17 +76,21 @@ from gutenbit.html_chunker._toc import (
 )
 
 # ---------------------------------------------------------------------------
-# Thresholds for _merge_chapter_description_paragraphs
+# Heading-content patterns used by section merge/filter passes
 # ---------------------------------------------------------------------------
 
-# Longest description paragraph to merge (chars).  Gutenberg chapter
-# descriptions are typically 1–2 lines; anything longer is body prose.
 _STANDALONE_BYLINE_RE = re.compile(r"^by\.?$", re.IGNORECASE)
 _TERMINAL_MARKER_RE = re.compile(
     r"^(?:the\s+end|finis)\.?$",
     re.IGNORECASE,
 )
 
+# ---------------------------------------------------------------------------
+# Thresholds for _merge_chapter_description_paragraphs
+# ---------------------------------------------------------------------------
+
+# Longest description paragraph to merge (chars).  Gutenberg chapter
+# descriptions are typically 1–2 lines; anything longer is body prose.
 _MAX_DESCRIPTION_PARAGRAPH_LEN = 300
 # Minimum fraction of alpha chars that must be uppercase for the paragraph
 # to be considered an ALL-CAPS description (allows minor OCR artifacts).
